@@ -1,0 +1,27 @@
+# system config: RISC-V 32-bit, minimal initramfs, QEMU
+#
+# Build:  make configure SYSTEM=configs/qemu-rv32-minimal.toml
+#         make build
+# Test:   make test
+
+[target]
+arch    = "riscv32"
+fpu     = false
+
+[kernel]
+version = "6.18.15"
+
+[kernel.config]
+
+[rootfs]
+type        = "initramfs"
+init        = "loop"
+compression = "gzip"
+
+[rootfs.packages]
+include = []
+
+[boot]
+loader  = "qemu"
+memory  = 512
+timeout = 0

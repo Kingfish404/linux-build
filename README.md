@@ -28,31 +28,59 @@ See [scripts/install-deps.sh](scripts/install-deps.sh) for the full list of pack
 
 ## Quick Start
 
-### Simple initramfs (init_loop only)
+### Declarative build (recommended)
+
+The declarative build system reads a TOML preset file and drives the entire
+pipeline automatically:
 
 ```bash
 # Download sources (only needed once)
 make linux opensbi
 
-# 32-bit
-make BITS=32 build_linux make_initramfs_simple install_initramfs build_opensbi_with_kernel
-make BITS=32 test_qemu
+# Configure from preset, build, and test — one pipeline
+make configure SYSTEM=configs/qemu-rv64-buildroot.toml
+make build
+make test
+```
 
-# 64-bit
-make BITS=64 build_linux make_initramfs_simple install_initramfs build_opensbi_with_kernel
+Available presets in `configs/`:
+
+| Preset                     | Arch | Init    | Description               |
+| -------------------------- | ---- | ------- | ------------------------- |
+| `qemu-rv64-minimal.toml`   | RV64 | loop    | Minimal initramfs, no FPU |
+| `qemu-rv32-minimal.toml`   | RV32 | loop    | Minimal initramfs, no FPU |
+| `qemu-rv64-buildroot.toml` | RV64 | busybox | Buildroot + SSH + tools   |
+| `qemu-rv32-buildroot.toml` | RV32 | busybox | Buildroot + SSH + tools   |
+
+See [Declarative Build System](#declarative-build-system) for details on the
+`system.toml` format and how to create custom presets.
+
+### Simple initramfs (init_loop only)
+
+> Prefer the declarative workflow above. These commands are for manual /
+> advanced use where you want fine-grained control.
+
+```bash
+# Download sources (only needed once)
+make linux opensbi
+
+# Build (use declarative 'make configure && make build' instead)
+make configure SYSTEM=configs/qemu-rv32-minimal.toml && make build
+
+# Quick re-test with explicit bitness
+make BITS=32 test_qemu
 make BITS=64 test_qemu
 ```
 
 ### Buildroot initramfs (full userspace)
 
 ```bash
-# 32-bit (first time — full build)
-make BITS=32 build_linux make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
-make BITS=32 test_qemu_buildroot
+# Declarative (recommended)
+make configure SYSTEM=configs/qemu-rv64-buildroot.toml && make build
 
-# 64-bit (first time — full build)
-make BITS=64 build_linux make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
+# Quick re-test with explicit bitness
 make BITS=64 test_qemu_buildroot
+make BITS=32 test_qemu_buildroot
 ```
 
 After the initial build, use `update_buildroot` for fast incremental rebuilds — see
@@ -63,7 +91,7 @@ and memory-limit troubleshooting.
 
 ```bash
 make build_spike                              # build Spike from source → spike-build/bin/spike
-make BITS=32 build_opensbi_with_kernel
+make configure SYSTEM=configs/qemu-rv32-minimal.toml && make build
 make BITS=32 test_spike                       # auto-uses spike-build/bin/spike if present
 ```
 
@@ -72,6 +100,44 @@ make BITS=32 test_spike                       # auto-uses spike-build/bin/spike 
 ```bash
 make build_all
 ```
+
+## Declarative Build System
+
+The declarative build system lets you describe a target system in a TOML file
+and build it with `make configure` / `make build` / `make test`.
+
+### How it works
+
+```
+configs/qemu-rv64-buildroot.toml          # ← WHAT: describe target system
+        ↓  make configure
+.config.mk  .config.kernel  .config.buildroot   # ← generated build configs
+        ↓  make build
+build64/  initramfs64-buildroot.cpio.gz  opensbi-build64/   # ← artifacts
+        ↓  make test
+QEMU boots with SSH + networking                            # ← running system
+```
+
+`make configure SYSTEM=<file>` runs `scripts/gen-config.py` which reads the TOML
+file and generates:
+
+| Generated file      | Purpose                                          |
+| ------------------- | ------------------------------------------------ |
+| `.config.mk`        | Makefile variable overrides (`-include`d at top) |
+| `.config.kernel`    | Kernel Kconfig fragment (applied by `build`)     |
+| `.config.buildroot` | Buildroot config fragment (when init = busybox)  |
+
+### Declarative targets
+
+| Target                    | Description                                                        |
+| ------------------------- | ------------------------------------------------------------------ |
+| `configure SYSTEM=<file>` | Parse TOML preset → generate `.config.{mk,kernel,buildroot}`       |
+| `build`                   | Full pipeline: kernel → rootfs → firmware (driven by `.config.mk`) |
+| `test`                    | Boot in emulator per config (QEMU or Spike)                        |
+| `clean_config`            | Remove generated `.config.*` files                                 |
+
+All existing imperative targets (`build_linux`, `test_qemu`, etc.) remain fully
+usable and automatically pick up `.config.mk` overrides when present.
 
 ## Build Targets
 
@@ -144,10 +210,11 @@ make build_all
 
 | Variable        | Default              | Description                                                        |
 | --------------- | -------------------- | ------------------------------------------------------------------ |
-| `BITS`          | `32`                 | Target bitness: `32` (RV32) or `64` (RV64)                         |
+| `BITS`          | `32`                 | Internal: set by `make configure`.                                 |
 | `CROSS_COMPILE` | auto                 | Cross-compiler prefix, e.g. `riscv64-linux-gnu-`                   |
 | `QEMU_MEM`      | `512`                | QEMU guest RAM in MiB (simple initramfs targets)                   |
 | `QEMU_TIMEOUT`  | *(unset)*            | Auto-exit QEMU after this many seconds (uses `timeout(1)`)         |
+| `SYSTEM`        | *(unset)*            | Path to system.toml preset for `make configure`                    |
 | `SPIKE_MEM`     | `512`                | Spike guest RAM in MiB                                             |
 | `SSH_PORT`      | `2222`               | Host port forwarded to guest port 22 (buildroot QEMU targets only) |
 | `SHARE_DIR`     | *(unset)*            | Host directory to share via 9P (buildroot QEMU targets only)       |
@@ -159,9 +226,10 @@ make build_all
 - `BITS=64` on riscv64 host: empty (native build).
 - `BITS=64` on any other host: `riscv64-linux-gnu-`.
 
-Override example:
+Override example (testing):
 ```bash
-make BITS=64 CROSS_COMPILE=riscv64-unknown-linux-gnu- build_linux
+make BITS=64 test_qemu                                        # re-test 64-bit build
+make BITS=64 CROSS_COMPILE=riscv64-unknown-linux-gnu- build_linux  # advanced: custom toolchain
 ```
 
 ### QEMU networking
@@ -217,13 +285,18 @@ Simple and Buildroot initramfs archives use distinct filenames so both can exist
 ├── Makefile                    # Top-level build orchestration (includes scripts/buildroot.mk)
 ├── README.md                   # This file
 ├── configs/
-│   └── buildroot.cfg           # Buildroot Kconfig fragment (packages, rootfs options)
+│   ├── qemu-rv64-minimal.toml  # Preset: RV64 minimal initramfs
+│   ├── qemu-rv32-minimal.toml  # Preset: RV32 minimal initramfs
+│   ├── qemu-rv64-buildroot.toml# Preset: RV64 Buildroot + SSH + tools
+│   └── qemu-rv32-buildroot.toml# Preset: RV32 Buildroot + SSH + tools
 ├── docs/
 │   ├── buildroot.md            # Buildroot customisation, iteration workflow, memory limits
 │   ├── kernel-config.md        # Kernel ISA tweaks, OpenSBI settings, init payload
-│   └── qemu-networking.md      # QEMU networking, SSH, 9P host sharing
+│   ├── qemu-networking.md      # QEMU networking, SSH, 9P host sharing
+│   └── roadmap.md              # Development roadmap toward a minimal RISC-V Linux distribution
 ├── scripts/
 │   ├── buildroot.mk            # Buildroot variables, targets, and packaging (included by Makefile)
+│   ├── gen-config.py           # TOML → .config.{mk,kernel,buildroot} generator
 │   ├── gen-package-readme.sh   # Generate README.md for release tarballs
 │   └── install-deps.sh         # Install all host build dependencies (Debian/Ubuntu)
 └── payload/

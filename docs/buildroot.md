@@ -11,25 +11,28 @@ initramfs used by this project.
 ## Quick Start
 
 ```bash
-# First time — full build (32-bit)
-make BITS=32 build_linux make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
-make BITS=32 test_qemu_buildroot
+# Configure from preset (generates .config.buildroot)
+make configure SYSTEM=configs/qemu-rv64-buildroot.toml
 
-# First time — full build (64-bit)
+# Full build
+make build
+
+# Or step-by-step:
 make BITS=64 build_linux make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
 make BITS=64 test_qemu_buildroot
 ```
 
-## Fast Iteration After Editing `configs/buildroot.cfg`
+## Fast Iteration After Editing a Preset
 
 After the initial build, you only need to rebuild Buildroot when changing packages.
 The **fastest path** uses QEMU's split-load mode (separate kernel + initramfs), which
 avoids re-embedding the initramfs into the kernel and rebuilding OpenSBI:
 
 ```bash
-# Edit configs/buildroot.cfg, then:
-make BITS=32 update_buildroot              # incremental Buildroot rebuild only
-make BITS=32 test_qemu_kernel_buildroot    # boot with separate kernel + initramfs
+# Edit configs/qemu-rv64-buildroot.toml (change [rootfs.packages]), then:
+make configure SYSTEM=configs/qemu-rv64-buildroot.toml   # regenerate .config.buildroot
+make BITS=64 update_buildroot              # incremental Buildroot rebuild only
+make BITS=64 test_qemu_kernel_buildroot    # boot with separate kernel + initramfs
 ```
 
 If you need the all-in-one `fw_payload.bin` (for `test_qemu_buildroot` or Spike):
@@ -49,21 +52,39 @@ make BITS=32 make_initramfs_buildroot_clean
 > rebuilds packages that changed. This is much faster but may leave stale files when
 > *removing* packages. Use `make_initramfs_buildroot_clean` for a guaranteed-clean rootfs.
 
-## Customising Packages (`configs/buildroot.cfg`)
+## Customising Packages
 
-The file [`configs/buildroot.cfg`](../configs/buildroot.cfg) is a Kconfig fragment appended on
+Package selection is defined in the TOML preset file under `[rootfs.packages]`.
+Running `make configure` generates `.config.buildroot` from those declarations.
+
+Example preset (`configs/qemu-rv64-buildroot.toml`):
+
+```toml
+[rootfs.packages]
+include = [
+    "openssh",
+    "wget",
+    "strace",
+    "htop",
+    "lsof",
+    "file",
+    "tree",
+]
+```
+
+The generated `.config.buildroot` is a Kconfig fragment appended on
 top of Buildroot's `qemu_riscv{32,64}_virt_defconfig`. It controls:
 
-- **Output format** — cpio + gzip (ext2 disabled)
-- **Extra packages** — openssh, bash, htop, strace, etc.
-- **Root password** — set via `BR2_TARGET_GENERIC_ROOT_PASSWD`
+- **Output format** — cpio + gzip/zstd
+- **Extra packages** — mapped from the `include` list
+- **Shell** — optionally set via `[rootfs.packages] shell = "bash"`
+- **Root password** — optionally set via `root_password = "root"`
 
-Edit this file to add or remove packages, then rebuild:
+To add or remove packages, edit the TOML preset, then rebuild:
 
 ```bash
-make BITS=32 update_buildroot              # fast incremental path
-# or
-make BITS=32 make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
+make configure SYSTEM=configs/qemu-rv64-buildroot.toml   # regenerate config
+make BITS=64 update_buildroot                             # fast incremental path
 ```
 
 ### FPU / ABI Note

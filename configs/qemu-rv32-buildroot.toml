@@ -1,0 +1,37 @@
+# system config: RISC-V 32-bit, Buildroot userspace, QEMU with networking
+#
+# Build:  make configure SYSTEM=configs/qemu-rv32-buildroot.toml
+#         make build
+# Test:   make test
+#         ssh root@localhost -p 2222
+
+[target]
+arch    = "riscv32"
+fpu     = true
+
+[kernel]
+version = "6.18.15"
+
+[kernel.config]
+
+[rootfs]
+type        = "initramfs"
+init        = "busybox"
+compression = "gzip"
+
+[rootfs.packages]
+include = [
+    "openssh",
+    "wget",
+    "strace",
+    "htop",
+    "lsof",
+    "file",
+    "tree",
+]
+
+[boot]
+loader   = "qemu"
+memory   = 512
+timeout  = 0
+ssh_port = 2222

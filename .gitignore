@@ -1,6 +1,11 @@
 .vscode
 .idea
 
+# Generated declarative build config (make configure)
+.config.mk
+.config.kernel
+.config.buildroot
+
 linux
 opensbi
 spike
@@ -14,7 +19,6 @@ opensbi-build*
 initramfs*
 spike-build*
 dist
-share
 
 *.tmp
 *.log

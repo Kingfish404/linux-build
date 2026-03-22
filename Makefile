@@ -1,8 +1,17 @@
 SHELL := /bin/bash
 PWD_DIR=$(abspath .)
-KERNEL_VERSION:=6.18.15
 
-# Build target bitness: 32 or 64 (default: 32)
+# ---------------------------------------------------------------------------
+# Declarative build: include generated config if present.
+# Run `make configure SYSTEM=configs/<preset>.toml` to generate .config.mk
+# from a system.toml file.  All variables below use ?= so the generated
+# config wins when present.
+# ---------------------------------------------------------------------------
+-include $(PWD_DIR)/.config.mk
+
+KERNEL_VERSION ?= 6.18.15
+
+# Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32
 
 # Host architecture detection
@@ -18,15 +27,22 @@ ifeq ($(BITS),64)
     CROSS_COMPILE ?= riscv64-linux-gnu-
   endif
   RISCV_XLEN  := 64
-  RISCV_ISA   := rv64imac_zicntr_zicsr_zifencei
-  RISCV_ABI   := lp64
+  RISCV_ISA   ?= rv64imac_zicntr_zicsr_zifencei
+  RISCV_ABI   ?= lp64
 else
   BITS         := 32
   CROSS_COMPILE ?= riscv64-linux-gnu-
   RISCV_XLEN  := 32
-  RISCV_ISA   := rv32imac_zicntr_zicsr_zifencei
-  RISCV_ABI   := ilp32
+  RISCV_ISA   ?= rv32imac_zicntr_zicsr_zifencei
+  RISCV_ABI   ?= ilp32
 endif
+
+# Declarative build variables (set by .config.mk or defaults)
+SYSTEM_INIT     ?= loop
+SYSTEM_ROOTFS   ?= initramfs
+SYSTEM_COMPRESS ?= gzip
+SYSTEM_LOADER   ?= qemu
+SYSTEM_FPU      ?= n
 
 # Per-bitness output directories so 32 and 64 builds coexist
 OBJDIR         := $(PWD_DIR)/build$(BITS)
@@ -51,6 +67,9 @@ SPIKE_MEM    ?= 512
 
 # Prefix command with timeout if QEMU_TIMEOUT is set
 IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
+
+# Derive kernel major version for download URL (e.g. 6.18.15 → v6.x, 7.0.1 → v7.x)
+KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
 RELEASE_NAME    := linux-riscv-rv$(BITS)-v$(KERNEL_VERSION)
@@ -109,10 +128,20 @@ help:
 	@echo "PWD:           $(PWD_DIR)"
 	@echo "Kernel:        $(KERNEL_VERSION)"
 	@echo "Host arch:     $(HOST_ARCH)"
-	@echo "Target bits:   $(BITS)  (override with BITS=32 or BITS=64)"
+	@echo "Target bits:   $(BITS)"
 	@echo "Cross-compile: $(if $(CROSS_COMPILE),$(CROSS_COMPILE),(native))"
 	@echo "Kernel objdir: $(OBJDIR)"
 	@echo "Initramfs:     $(INITRAMFS_CPIO)"
+	@echo "Config:        $(if $(wildcard $(PWD_DIR)/.config.mk),.config.mk loaded,(none — use 'make configure'))"
+	@echo ""
+	@echo "--- Declarative Build (recommended) ---"
+	@echo "  configure SYSTEM=<toml>      - Parse system.toml → generate .config.{mk,kernel,buildroot}"
+	@echo "  build                        - Full build driven by .config.mk (kernel+rootfs+firmware)"
+	@echo "  test                         - Boot in emulator per config (QEMU or Spike)"
+	@echo "  clean_config                 - Remove generated .config.* files"
+	@echo ""
+	@echo "  Available presets:"
+	@for f in configs/*.toml; do echo "    $$f"; done 2>/dev/null
 	@echo ""
 	@echo "--- Source ---"
 	@echo "  linux                        - Download and extract Linux kernel source"
@@ -156,9 +185,10 @@ help:
 	@echo "  clean_packages               - Remove release tarballs from workspace"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make BITS=32 build_linux make_initramfs_simple install_initramfs build_opensbi_with_kernel"
-	@echo "  make BITS=64 build_linux make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel"
-	@echo "  make BITS=32 test_qemu"
+	@echo "  make configure SYSTEM=configs/qemu-rv64-buildroot.toml && make build && make test"
+	@echo "  make configure SYSTEM=configs/qemu-rv32-minimal.toml && make build && make test"
+	@echo "  make BITS=64 test_qemu              # quick re-test with explicit bitness"
+	@echo "  make BITS=32 test_spike              # test a specific arch in Spike"
 	@echo "  make package_all"
 	@echo "  make github_release TAG=v$(KERNEL_VERSION)"
 
@@ -166,12 +196,96 @@ help:
 all: help
 
 # ---------------------------------------------------------------------------
+# Declarative build targets
+# ---------------------------------------------------------------------------
+#
+# make configure SYSTEM=configs/<preset>.toml   — parse TOML → .config.{mk,kernel,buildroot}
+# make build                                    — full build driven by .config.mk
+# make test                                     — boot in QEMU/Spike per config
+# make clean_config                             — remove generated .config.* files
+#
+# All existing imperative targets (build_linux, test_qemu, etc.) remain usable
+# and automatically pick up .config.mk overrides when present.
+# ---------------------------------------------------------------------------
+
+# Path to system.toml (set on command line: make configure SYSTEM=...)
+SYSTEM ?=
+
+configure:
+	@if [ -z "$(SYSTEM)" ]; then \
+		echo "Usage: make configure SYSTEM=configs/<preset>.toml"; \
+		echo ""; \
+		echo "Available presets:"; \
+		ls -1 configs/*.toml 2>/dev/null | sed 's/^/  /'; \
+		false; \
+	fi
+	python3 scripts/gen-config.py $(SYSTEM) --out-dir $(PWD_DIR)
+	@echo ""
+	@echo "Next: make build"
+
+# Apply generated kernel config fragment via scripts/config
+apply_kernel_config:
+	@if [ -f $(PWD_DIR)/.config.kernel ]; then \
+		echo "Applying kernel config fragment from .config.kernel"; \
+		while IFS= read -r line; do \
+			case "$$line" in \
+				\#\ CONFIG_*\ is\ not\ set) \
+					key=$$(echo "$$line" | sed 's/^# \(CONFIG_[A-Za-z0-9_]*\) is not set/\1/'); \
+					$(KCONFIG) --disable $$key ;; \
+				CONFIG_*=y) \
+					key=$$(echo "$$line" | cut -d= -f1); \
+					$(KCONFIG) --enable $$key ;; \
+				CONFIG_*=*) \
+					key=$$(echo "$$line" | cut -d= -f1); \
+					val=$$(echo "$$line" | cut -d= -f2- | tr -d '"'); \
+					$(KCONFIG) --set-val $$key $$val ;; \
+			esac; \
+		done < $(PWD_DIR)/.config.kernel; \
+	fi
+
+# Unified build: reads .config.mk to decide what to build
+build: linux opensbi
+ifeq ($(SYSTEM_INIT),busybox)
+	$(MAKE) build_linux
+	$(MAKE) apply_kernel_config
+	$(KERNEL_MAKE) olddefconfig
+	$(KERNEL_MAKE)
+	$(MAKE) make_initramfs_buildroot
+	$(MAKE) install_initramfs_buildroot
+	$(MAKE) build_opensbi_with_kernel
+else
+	$(MAKE) build_linux
+	$(MAKE) apply_kernel_config
+	$(KERNEL_MAKE) olddefconfig
+	$(KERNEL_MAKE)
+	$(MAKE) make_initramfs_simple
+	$(MAKE) install_initramfs
+	$(MAKE) build_opensbi_with_kernel
+endif
+	@echo ""
+	@echo "Build complete.  Run: make test"
+
+# Unified test: boot in emulator per config
+test:
+ifeq ($(SYSTEM_LOADER),spike)
+	$(MAKE) test_spike
+else ifeq ($(SYSTEM_INIT),busybox)
+	$(MAKE) test_qemu_kernel_buildroot
+else
+	$(MAKE) test_qemu_kernel
+endif
+
+clean_config:
+	rm -f $(PWD_DIR)/.config.mk $(PWD_DIR)/.config.kernel $(PWD_DIR)/.config.buildroot
+	@echo "Declarative config removed."
+
+# ---------------------------------------------------------------------------
 # Source acquisition
 # ---------------------------------------------------------------------------
 
 linux:
 	@if [ -d linux ]; then echo "linux/ already exists, skipping download"; else \
-		wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$(KERNEL_VERSION).tar.xz && \
+		wget https://cdn.kernel.org/pub/linux/kernel/$(KERNEL_MAJOR)/linux-$(KERNEL_VERSION).tar.xz && \
 		tar -xf linux-$(KERNEL_VERSION).tar.xz && \
 		mv linux-$(KERNEL_VERSION) linux && \
 		rm linux-$(KERNEL_VERSION).tar.xz; \
@@ -385,12 +499,14 @@ clean:
 		initramfs32 initramfs64 initramfs32.cpio.gz initramfs64.cpio.gz \
 		initramfs32-buildroot.cpio.gz initramfs64-buildroot.cpio.gz \
 		opensbi opensbi-build32 opensbi-build64 \
-		payload/build
+		payload/build \
+		.config.mk .config.kernel .config.buildroot
 
 clean_spike:
 	rm -rf spike spike-build
 
 .PHONY: help all \
+        configure build test apply_kernel_config clean_config \
         linux opensbi spike_src \
         build_linux \
         build_init make_initramfs_simple \

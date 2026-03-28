@@ -8,6 +8,8 @@
 
 # Per-bitness Buildroot initramfs CPIO
 BUILDROOT_CPIO := $(PWD_DIR)/initramfs$(BITS)-buildroot.cpio.gz
+# Stamp file: hash of .config.buildroot used for the last buildroot build
+BUILDROOT_STAMP := $(PWD_DIR)/initramfs$(BITS)-buildroot.stamp
 
 # Buildroot per-bitness clone directory
 BUILDROOT_DIR  := $(PWD_DIR)/buildroot$(BITS)
@@ -15,7 +17,11 @@ BUILDROOT_DIR  := $(PWD_DIR)/buildroot$(BITS)
 BUILDROOT_CFG  := $(PWD_DIR)/.config.buildroot
 
 # Buildroot release package (distinct from simple initramfs package)
-BUILDROOT_RELEASE_NAME    := linux-riscv-rv$(BITS)-buildroot-v$(KERNEL_VERSION)
+ifneq ($(SYSTEM_PRESET),)
+  BUILDROOT_RELEASE_NAME    := linux-riscv-rv$(BITS)-$(SYSTEM_PRESET)-buildroot-v$(KERNEL_VERSION)
+else
+  BUILDROOT_RELEASE_NAME    := linux-riscv-rv$(BITS)-buildroot-v$(KERNEL_VERSION)
+endif
 BUILDROOT_RELEASE_TARBALL := $(PWD_DIR)/dist/$(BUILDROOT_RELEASE_NAME).tar.gz
 BUILDROOT_RELEASE_STAGING := $(PWD_DIR)/dist/$(BUILDROOT_RELEASE_NAME)
 
@@ -73,9 +79,8 @@ make_initramfs_buildroot: buildroot
 	make -C $(BUILDROOT_DIR) olddefconfig
 	make -C $(BUILDROOT_DIR) -j$(NPROC)
 	cp $(BUILDROOT_DIR)/output/images/rootfs.cpio.gz $(BUILDROOT_CPIO)
-	# Buildroot default configs use ilp32d/lp64d ABI (hardware FPU), so enable
-	# CONFIG_FPU in the kernel to support those userspace binaries.
-	$(KCONFIG) --enable CONFIG_FPU
+	# Save config hash so we can detect when a rebuild is needed
+	@md5sum $(BUILDROOT_CFG) | cut -d' ' -f1 > $(BUILDROOT_STAMP)
 	@echo "Buildroot initramfs: $(BUILDROOT_CPIO)"
 
 # Full clean Buildroot rebuild (slow — use only when incremental gives stale results)
@@ -126,13 +131,25 @@ test_qemu_kernel_buildroot:
 # Package Buildroot artifacts
 # ---------------------------------------------------------------------------
 
-package_buildroot:
-	@echo "--- Checking Buildroot artifacts for rv$(BITS) ---"
-	$(call require,$(FW_PAYLOAD_BIN),Run build_opensbi_with_kernel first.)
-	$(call require,$(FW_PAYLOAD_ELF),Run build_opensbi_with_kernel first.)
-	$(call require,$(FW_DYNAMIC_BIN),Run build_opensbi first.)
+package_buildroot: linux opensbi
+	@if [ ! -f $(BUILDROOT_CFG) ]; then \
+		echo "No .config.buildroot found, skipping buildroot packaging."; \
+		exit 0; \
+	fi
+	@echo "--- Packaging Buildroot artifacts for rv$(BITS) ---"
 	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
-	$(call require,$(BUILDROOT_CPIO),Run make_initramfs_buildroot first.)
+	# Rebuild buildroot if config changed or CPIO missing
+	@if [ ! -f $(BUILDROOT_CPIO) ] || [ ! -f $(BUILDROOT_STAMP) ] || \
+	   [ "$$(md5sum $(BUILDROOT_CFG) 2>/dev/null | cut -d' ' -f1)" != "$$(cat $(BUILDROOT_STAMP) 2>/dev/null)" ]; then \
+		echo "Buildroot config changed or CPIO missing, rebuilding (clean)..."; \
+		$(MAKE) make_initramfs_buildroot_clean; \
+	fi
+	# Apply buildroot kernel config, re-embed initramfs, rebuild with buildroot ISA
+	$(call apply_kconfig_fragment,$(KERNEL_CFG_BUILDROOT))
+	$(KCONFIG) --set-str CONFIG_INITRAMFS_SOURCE $(BUILDROOT_CPIO)
+	$(KERNEL_MAKE) olddefconfig
+	$(KERNEL_MAKE)
+	$(MAKE) RISCV_ISA=$(RISCV_ISA_BUILDROOT) build_opensbi_with_kernel
 	@echo "--- Assembling $(BUILDROOT_RELEASE_NAME) ---"
 	rm -rf $(BUILDROOT_RELEASE_STAGING)
 	mkdir -p $(BUILDROOT_RELEASE_STAGING)
@@ -140,7 +157,7 @@ package_buildroot:
 	cp $(KERNEL_IMAGE) $(BUILDROOT_RELEASE_STAGING)/
 	cp $(BUILDROOT_CPIO) $(BUILDROOT_RELEASE_STAGING)/initramfs.cpio.gz
 	cp $(OBJDIR)/vmlinux $(BUILDROOT_RELEASE_STAGING)/
-	bash scripts/gen-package-readme.sh $(BITS) $(KERNEL_VERSION) $(RISCV_ISA) $(RISCV_ABI) buildroot \
+	bash scripts/gen-package-readme.sh $(BITS) $(KERNEL_VERSION) $(RISCV_ISA_BUILDROOT) $(RISCV_ABI_BUILDROOT) buildroot $(SYSTEM_PRESET) \
 		> $(BUILDROOT_RELEASE_STAGING)/README.md
 	tar -czf $(BUILDROOT_RELEASE_TARBALL) -C $(PWD_DIR)/dist $(BUILDROOT_RELEASE_NAME)
 	@echo "Package ready: $(BUILDROOT_RELEASE_TARBALL)"

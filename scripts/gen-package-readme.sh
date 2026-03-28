@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate a README.md for a release tarball.
-# Usage: gen-package-readme.sh <BITS> <KERNEL_VERSION> <RISCV_ISA> <RISCV_ABI> [simple|buildroot]
+# Usage: gen-package-readme.sh <BITS> <KERNEL_VERSION> <RISCV_ISA> <RISCV_ABI> [simple|buildroot] [PRESET]
 set -euo pipefail
 
 BITS="$1"
@@ -8,6 +8,7 @@ KERNEL_VERSION="$2"
 RISCV_ISA="$3"
 RISCV_ABI="$4"
 VARIANT="${5:-simple}"   # "simple" (init_loop) or "buildroot" (full rootfs)
+PRESET="${6:-}"          # config preset name (e.g. "qemu-rv32")
 
 if [[ "$VARIANT" == "buildroot" ]]; then
   # Buildroot userspace uses hard-float ABI, so the kernel has CONFIG_FPU enabled.
@@ -34,6 +35,7 @@ cat <<EOF
 
 | Field   | Value |
 |---------|-------|
+| Config  | \`${PRESET:-default}\` |
 | Kernel ISA | \`${TITLE_ISA}\` (OpenSBI ISA: \`${RISCV_ISA}\`) |
 | ABI     | \`${RISCV_ABI}\` |
 | Variant | ${VARIANT} |

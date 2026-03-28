@@ -4,6 +4,7 @@
 # Generated declarative build config (make configure)
 .config.mk
 .config.kernel
+.config.kernel.*
 .config.buildroot
 
 linux

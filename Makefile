@@ -9,7 +9,7 @@ PWD_DIR=$(abspath .)
 # ---------------------------------------------------------------------------
 -include $(PWD_DIR)/.config.mk
 
-KERNEL_VERSION ?= 6.18.15
+KERNEL_VERSION ?= 6.18.20
 
 # Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32
@@ -27,22 +27,25 @@ ifeq ($(BITS),64)
     CROSS_COMPILE ?= riscv64-linux-gnu-
   endif
   RISCV_XLEN  := 64
-  RISCV_ISA   ?= rv64imac_zicntr_zicsr_zifencei
-  RISCV_ABI   ?= lp64
+  RISCV_ISA   := rv64imac_zicntr_zicsr_zifencei
+  RISCV_ABI   := lp64
 else
   BITS         := 32
   CROSS_COMPILE ?= riscv64-linux-gnu-
   RISCV_XLEN  := 32
-  RISCV_ISA   ?= rv32imac_zicntr_zicsr_zifencei
-  RISCV_ABI   ?= ilp32
+  RISCV_ISA   := rv32imac_zicntr_zicsr_zifencei
+  RISCV_ABI   := ilp32
 endif
 
 # Declarative build variables (set by .config.mk or defaults)
-SYSTEM_INIT     ?= loop
+SYSTEM_PRESET   ?=
 SYSTEM_ROOTFS   ?= initramfs
 SYSTEM_COMPRESS ?= gzip
 SYSTEM_LOADER   ?= qemu
-SYSTEM_FPU      ?= n
+
+# Buildroot variant ISA/ABI (set by .config.mk, defaults match RISCV_ISA/ABI)
+RISCV_ISA_BUILDROOT ?= $(RISCV_ISA)
+RISCV_ABI_BUILDROOT ?= $(RISCV_ABI)
 
 # Per-bitness output directories so 32 and 64 builds coexist
 OBJDIR         := $(PWD_DIR)/build$(BITS)
@@ -72,15 +75,23 @@ IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
 KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
-RELEASE_NAME    := linux-riscv-rv$(BITS)-v$(KERNEL_VERSION)
+# Include config preset name when available (e.g. linux-riscv-rv32-qemu-rv32-v6.18.20)
+ifneq ($(SYSTEM_PRESET),)
+  RELEASE_NAME    := linux-riscv-rv$(BITS)-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
+else
+  RELEASE_NAME    := linux-riscv-rv$(BITS)-v$(KERNEL_VERSION)
+endif
 RELEASE_TARBALL := $(PWD_DIR)/dist/$(RELEASE_NAME).tar.gz
 # Staging directory under dist/ (cleaned after tarball is created)
 RELEASE_STAGING := $(PWD_DIR)/dist/$(RELEASE_NAME)
 
+# Linux kernel source directory (versioned so multiple kernels can coexist)
+LINUX_DIR := $(PWD_DIR)/linux/linux-$(KERNEL_VERSION)
+
 # All kernel make invocations use a separate output dir via O=
-KERNEL_MAKE := make -C linux O=$(OBJDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) -j$(NPROC)
+KERNEL_MAKE := make -C $(LINUX_DIR) O=$(OBJDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) -j$(NPROC)
 # scripts/config wrapper that operates on the per-bitness .config
-KCONFIG := linux/scripts/config --file $(OBJDIR)/.config
+KCONFIG := $(LINUX_DIR)/scripts/config --file $(OBJDIR)/.config
 
 # ---------------------------------------------------------------------------
 # Shorthand paths (used throughout targets and error checks)
@@ -185,8 +196,9 @@ help:
 	@echo "  clean_packages               - Remove release tarballs from workspace"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make configure SYSTEM=configs/qemu-rv64-buildroot.toml && make build && make test"
-	@echo "  make configure SYSTEM=configs/qemu-rv32-minimal.toml && make build && make test"
+	@echo "  make configure SYSTEM=configs/qemu-rv64.toml && make build && make test"
+	@echo "  make configure SYSTEM=configs/qemu-rv32.toml && make build && make test"
+	@echo "  make test_qemu_kernel_buildroot     # boot buildroot variant"
 	@echo "  make BITS=64 test_qemu              # quick re-test with explicit bitness"
 	@echo "  make BITS=32 test_spike              # test a specific arch in Spike"
 	@echo "  make package_all"
@@ -224,11 +236,13 @@ configure:
 	@echo "Next: make build"
 
 # Apply generated kernel config fragment via scripts/config
-apply_kernel_config:
-	@if [ -f $(PWD_DIR)/.config.kernel ]; then \
-		echo "Applying kernel config fragment from .config.kernel"; \
+# Usage: $(call apply_kconfig_fragment,/path/to/fragment)
+define apply_kconfig_fragment
+	@if [ -f $(1) ]; then \
+		echo "Applying kernel config fragment: $(1)"; \
 		while IFS= read -r line; do \
 			case "$$line" in \
+				''|\#*) ;; \
 				\#\ CONFIG_*\ is\ not\ set) \
 					key=$$(echo "$$line" | sed 's/^# \(CONFIG_[A-Za-z0-9_]*\) is not set/\1/'); \
 					$(KCONFIG) --disable $$key ;; \
@@ -240,43 +254,44 @@ apply_kernel_config:
 					val=$$(echo "$$line" | cut -d= -f2- | tr -d '"'); \
 					$(KCONFIG) --set-val $$key $$val ;; \
 			esac; \
-		done < $(PWD_DIR)/.config.kernel; \
+		done < $(1); \
 	fi
+endef
 
-# Unified build: reads .config.mk to decide what to build
+# Shorthand paths to generated config fragments
+KERNEL_CFG          := $(PWD_DIR)/.config.kernel
+KERNEL_CFG_MINIMAL  := $(PWD_DIR)/.config.kernel.minimal
+KERNEL_CFG_BUILDROOT := $(PWD_DIR)/.config.kernel.buildroot
+
+# Unified build: always builds minimal; also builds buildroot when .config.buildroot exists
 build: linux opensbi
-ifeq ($(SYSTEM_INIT),busybox)
+	# --- Minimal variant ---
 	$(MAKE) build_linux
-	$(MAKE) apply_kernel_config
-	$(KERNEL_MAKE) olddefconfig
-	$(KERNEL_MAKE)
-	$(MAKE) make_initramfs_buildroot
-	$(MAKE) install_initramfs_buildroot
-	$(MAKE) build_opensbi_with_kernel
-else
-	$(MAKE) build_linux
-	$(MAKE) apply_kernel_config
-	$(KERNEL_MAKE) olddefconfig
-	$(KERNEL_MAKE)
 	$(MAKE) make_initramfs_simple
 	$(MAKE) install_initramfs
 	$(MAKE) build_opensbi_with_kernel
-endif
+	# --- Buildroot variant (if .config.buildroot exists) ---
+	@if [ -f $(PWD_DIR)/.config.buildroot ]; then \
+		echo "--- Building buildroot variant ---"; \
+		$(MAKE) make_initramfs_buildroot; \
+	else \
+		echo "--- Skipping buildroot (no .config.buildroot) ---"; \
+	fi
 	@echo ""
 	@echo "Build complete.  Run: make test"
 
-# Unified test: boot in emulator per config
+# Unified test: boot minimal variant in emulator per config
 test:
 ifeq ($(SYSTEM_LOADER),spike)
 	$(MAKE) test_spike
-else ifeq ($(SYSTEM_INIT),busybox)
-	$(MAKE) test_qemu_kernel_buildroot
 else
 	$(MAKE) test_qemu_kernel
 endif
 
 clean_config:
-	rm -f $(PWD_DIR)/.config.mk $(PWD_DIR)/.config.kernel $(PWD_DIR)/.config.buildroot
+	rm -f $(PWD_DIR)/.config.mk $(PWD_DIR)/.config.kernel \
+	     $(PWD_DIR)/.config.kernel.minimal $(PWD_DIR)/.config.kernel.buildroot \
+	     $(PWD_DIR)/.config.buildroot
 	@echo "Declarative config removed."
 
 # ---------------------------------------------------------------------------
@@ -284,10 +299,10 @@ clean_config:
 # ---------------------------------------------------------------------------
 
 linux:
-	@if [ -d linux ]; then echo "linux/ already exists, skipping download"; else \
+	@if [ -d $(LINUX_DIR) ]; then echo "$(LINUX_DIR) already exists, skipping download"; else \
+		mkdir -p $(PWD_DIR)/linux && \
 		wget https://cdn.kernel.org/pub/linux/kernel/$(KERNEL_MAJOR)/linux-$(KERNEL_VERSION).tar.xz && \
-		tar -xf linux-$(KERNEL_VERSION).tar.xz && \
-		mv linux-$(KERNEL_VERSION) linux && \
+		tar -xf linux-$(KERNEL_VERSION).tar.xz -C $(PWD_DIR)/linux && \
 		rm linux-$(KERNEL_VERSION).tar.xz; \
 	fi
 
@@ -315,19 +330,9 @@ build_spike: spike_src
 build_linux: linux
 	mkdir -p $(OBJDIR)
 	$(KERNEL_MAKE) defconfig
-	# Use rv$(BITS)imac (no FPU/D) for both 32 and 64 bit to minimise CPU requirements
-ifeq ($(BITS),32)
-	$(KCONFIG) --enable  CONFIG_NONPORTABLE
-	$(KCONFIG) --disable CONFIG_ARCH_RV64I
-	$(KCONFIG) --enable  CONFIG_ARCH_RV32I
-endif
-	$(KCONFIG) --disable CONFIG_FPU
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZAWRS
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZBA
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZBB
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZBC
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZICBOM
-	$(KCONFIG) --disable CONFIG_RISCV_ISA_ZICBOZ
+	# Apply shared + minimal kernel config from generated fragments
+	$(call apply_kconfig_fragment,$(KERNEL_CFG))
+	$(call apply_kconfig_fragment,$(KERNEL_CFG_MINIMAL))
 	$(KERNEL_MAKE) olddefconfig
 	$(KERNEL_MAKE)
 
@@ -426,13 +431,17 @@ build_all: linux opensbi
 #   make package_all       → both tarballs
 # ---------------------------------------------------------------------------
 
-package:
-	@echo "--- Checking simple initramfs artifacts for rv$(BITS) ---"
-	$(call require,$(FW_PAYLOAD_BIN),Run build_opensbi_with_kernel first.)
-	$(call require,$(FW_PAYLOAD_ELF),Run build_opensbi_with_kernel first.)
-	$(call require,$(FW_DYNAMIC_BIN),Run build_opensbi first.)
+package: linux opensbi
+	@echo "--- Packaging simple initramfs artifacts for rv$(BITS) ---"
 	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
-	$(call require,$(INITRAMFS_CPIO),Run make_initramfs_simple first.)
+	# Build simple initramfs if not already present
+	@test -f $(INITRAMFS_CPIO) || $(MAKE) make_initramfs_simple
+	# Apply minimal kernel config, re-embed initramfs, rebuild
+	$(call apply_kconfig_fragment,$(KERNEL_CFG_MINIMAL))
+	$(KCONFIG) --set-str CONFIG_INITRAMFS_SOURCE $(INITRAMFS_CPIO)
+	$(KERNEL_MAKE) olddefconfig
+	$(KERNEL_MAKE)
+	$(MAKE) build_opensbi_with_kernel
 	@echo "--- Assembling $(RELEASE_NAME) ---"
 	rm -rf $(RELEASE_STAGING)
 	mkdir -p $(RELEASE_STAGING)
@@ -440,50 +449,43 @@ package:
 	cp $(KERNEL_IMAGE) $(RELEASE_STAGING)/
 	cp $(INITRAMFS_CPIO) $(RELEASE_STAGING)/initramfs.cpio.gz
 	cp $(OBJDIR)/vmlinux $(RELEASE_STAGING)/
-	bash scripts/gen-package-readme.sh $(BITS) $(KERNEL_VERSION) $(RISCV_ISA) $(RISCV_ABI) simple \
+	bash scripts/gen-package-readme.sh $(BITS) $(KERNEL_VERSION) $(RISCV_ISA) $(RISCV_ABI) simple $(SYSTEM_PRESET) \
 		> $(RELEASE_STAGING)/README.md
 	tar -czf $(RELEASE_TARBALL) -C $(PWD_DIR)/dist $(RELEASE_NAME)
 	@echo "Package ready: $(RELEASE_TARBALL)"
 
 package_all:
-	$(MAKE) BITS=32 package
-	$(MAKE) BITS=64 package
-	-$(MAKE) BITS=32 package_buildroot
-	-$(MAKE) BITS=64 package_buildroot
+	$(MAKE) package
+	-$(MAKE) package_buildroot
 	@echo ""
-	@echo "Packages ready (simple initramfs):"
-	@echo "  $(PWD_DIR)/dist/linux-riscv-rv32-v$(KERNEL_VERSION).tar.gz"
-	@echo "  $(PWD_DIR)/dist/linux-riscv-rv64-v$(KERNEL_VERSION).tar.gz"
-	@echo "Packages ready (buildroot, if built):"
-	@echo "  $(PWD_DIR)/dist/linux-riscv-rv32-buildroot-v$(KERNEL_VERSION).tar.gz"
-	@echo "  $(PWD_DIR)/dist/linux-riscv-rv64-buildroot-v$(KERNEL_VERSION).tar.gz"
+	@echo "Packages created under dist/:"
+	@ls -1 $(PWD_DIR)/dist/*.tar.gz 2>/dev/null | sed 's/^/  /'
 
 # ---------------------------------------------------------------------------
 # GitHub Release  (requires the 'gh' CLI: https://cli.github.com)
 #
 # Usage:
-#   make github_release                    # tag = v<KERNEL_VERSION>
+#   make github_release                    # tag = <preset>-v<KERNEL_VERSION>
 #   make github_release TAG=v6.18.15-rc1  # custom tag
 #
-# Both rv32 and rv64 tarballs must exist (run 'make package_all' first).
+# All tarballs must exist (run 'make package_all' first).
 # ---------------------------------------------------------------------------
 
-TAG ?= v$(KERNEL_VERSION)
+ifneq ($(SYSTEM_PRESET),)
+  TAG ?= $(SYSTEM_PRESET)-v$(KERNEL_VERSION)
+else
+  TAG ?= v$(KERNEL_VERSION)
+endif
 
 github_release:
 	$(call require_cmd,gh,Install from https://cli.github.com)
-	$(call require,$(PWD_DIR)/dist/linux-riscv-rv32-v$(KERNEL_VERSION).tar.gz,Run 'make package_all' first.)
-	$(call require,$(PWD_DIR)/dist/linux-riscv-rv64-v$(KERNEL_VERSION).tar.gz,Run 'make package_all' first.)
 	@echo "--- Creating GitHub Release $(TAG) ---"
-	@# Collect all tarballs: simple (required) + buildroot (optional)
-	$(eval RELEASE_FILES := $(PWD_DIR)/dist/linux-riscv-rv32-v$(KERNEL_VERSION).tar.gz \
-		$(PWD_DIR)/dist/linux-riscv-rv64-v$(KERNEL_VERSION).tar.gz \
-		$(wildcard $(PWD_DIR)/dist/linux-riscv-rv32-buildroot-v$(KERNEL_VERSION).tar.gz) \
-		$(wildcard $(PWD_DIR)/dist/linux-riscv-rv64-buildroot-v$(KERNEL_VERSION).tar.gz))
+	$(eval RELEASE_FILES := $(wildcard $(PWD_DIR)/dist/*.tar.gz))
+	@test -n "$(RELEASE_FILES)" || (echo "ERROR: No tarballs found in dist/. Run 'make package_all' first." && false)
 	gh release create $(TAG) \
 		$(RELEASE_FILES) \
-		--title "Linux $(KERNEL_VERSION) for RISC-V rv32/rv64" \
-		--notes $$'Pre-built Linux $(KERNEL_VERSION) kernels for RISC-V.\n\nSimple variants: rv32imac / rv64imac (FPU disabled).\nBuildroot variants: rv32imafd / rv64imafd (FPU enabled for hard-float userspace).\n\nSee README.md inside each tarball for boot instructions (QEMU / Spike).'
+		--title "Linux $(KERNEL_VERSION) for RISC-V ($(or $(SYSTEM_PRESET),default))" \
+		--notes $$'Pre-built Linux $(KERNEL_VERSION) kernels for RISC-V.\nConfig: $(or $(SYSTEM_PRESET),default)\n\nMinimal variants: rv32imac / rv64imac (FPU disabled).\nBuildroot variants: rv32imafd / rv64imafd (FPU enabled for hard-float userspace).\n\nSee README.md inside each tarball for boot instructions (QEMU / Spike).'
 	@echo "Release $(TAG) published."
 
 clean_packages:
@@ -495,18 +497,19 @@ clean_packages:
 # ---------------------------------------------------------------------------
 
 clean:
-	rm -rf linux build32 build64 \
+	rm -rf linux/ build32 build64 \
 		initramfs32 initramfs64 initramfs32.cpio.gz initramfs64.cpio.gz \
 		initramfs32-buildroot.cpio.gz initramfs64-buildroot.cpio.gz \
+		initramfs32-buildroot.stamp initramfs64-buildroot.stamp \
 		opensbi opensbi-build32 opensbi-build64 \
 		payload/build \
-		.config.mk .config.kernel .config.buildroot
+		.config.mk .config.kernel .config.kernel.minimal .config.kernel.buildroot .config.buildroot
 
 clean_spike:
 	rm -rf spike spike-build
 
 .PHONY: help all \
-        configure build test apply_kernel_config clean_config \
+        configure build test clean_config \
         linux opensbi spike_src \
         build_linux \
         build_init make_initramfs_simple \

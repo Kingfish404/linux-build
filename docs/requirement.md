@@ -138,7 +138,7 @@ RISC-V Linux 构建工具链，正在向 **最小化、现代化、安全优先*
 #### 4.3 项目适配度：★★★★★
 
 项目的分层构建路径天然适合教学：
-`init_loop` → busybox → dinit → 完整系统，每一步可单独理解和实验。
+`init_loop` -> busybox -> dinit -> 完整系统，每一步可单独理解和实验。
 
 #### 4.4 需求清单
 
@@ -225,7 +225,7 @@ RISC-V Linux 构建工具链，正在向 **最小化、现代化、安全优先*
 
 | #   | 步骤                             | 依赖           | 产出                             |
 | --- | -------------------------------- | -------------- | -------------------------------- |
-| S1  | 构建系统集成 SBOM 生成           | Phase 0        | `make sbom` → SPDX JSON 输出     |
+| S1  | 构建系统集成 SBOM 生成           | Phase 0        | `make sbom` -> SPDX JSON 输出     |
 | S2  | 创建 IoT 网关配置预设            | Phase 1.9      | `configs/iot-gateway-rv64.toml`  |
 | S3  | CI 流水线添加安全扫描门控        | Phase 0.4      | CVE 扫描 + 固件签名验证          |
 | S4  | 发布 CRA 合规参考架构文档        | Phase 1 完成后 | `docs/cra-compliance.md`         |

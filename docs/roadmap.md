@@ -22,7 +22,7 @@ kernel boot experiment and a simple distribution.
 
 | Component           | Current State                                                   | Maturity |
 | ------------------- | --------------------------------------------------------------- | -------- |
-| **Kernel**          | Linux 6.18.15, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
+| **Kernel**          | Linux 6.18.22, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
 | **Firmware / Boot** | OpenSBI (fw_payload / fw_dynamic), QEMU/Spike only              | ★★★☆☆    |
 | **Root filesystem** | initramfs-only: ① bare `init_loop` dead-loop ② Buildroot rootfs | ★★☆☆☆    |
 | **Userspace**       | Buildroot provides busybox + openssh/htop/strace                | ★★☆☆☆    |
@@ -57,9 +57,9 @@ pipeline. This section details every missing piece.
 
 ```
 OpenSBI (fw_payload / fw_dynamic)
-  └→ Linux kernel Image (loaded by QEMU -bios / -kernel)
-       └→ initramfs cpio.gz (RAM-only, no persistent storage)
-            └→ init: dead-loop ELF  or  busybox (Buildroot)
+  └-> Linux kernel Image (loaded by QEMU -bios / -kernel)
+       └-> initramfs cpio.gz (RAM-only, no persistent storage)
+            └-> init: dead-loop ELF  or  busybox (Buildroot)
 ```
 
 - No disk image — rootfs exists only in RAM (initramfs)
@@ -71,12 +71,12 @@ OpenSBI (fw_payload / fw_dynamic)
 
 ```
 OpenSBI (M-mode, ROM or SPI flash)
-  └→ U-Boot SPL (optional, board-specific)
-       └→ U-Boot (S-mode, EFI_LOADER=y)
-            └→ EFI System Partition (FAT32)
-                 └→ EFISTUB kernel Image  or  GRUB EFI
-                      └→ root= on disk (ext4 / btrfs partition)
-                           └→ dinit (PID 1) → services
+  └-> U-Boot SPL (optional, board-specific)
+       └-> U-Boot (S-mode, EFI_LOADER=y)
+            └-> EFI System Partition (FAT32)
+                 └-> EFISTUB kernel Image  or  GRUB EFI
+                      └-> root= on disk (ext4 / btrfs partition)
+                           └-> dinit (PID 1) -> services
 ```
 
 ### Missing Components
@@ -87,7 +87,7 @@ OpenSBI (M-mode, ROM or SPI flash)
 | GPT disk image        | Script to create GPT image: ESP (FAT32, ~256 MiB) + rootfs (ext4/btrfs) + optional data partition | 🔴 Critical  |
 | ESP population        | Place `EFI/BOOT/BOOTRISCV64.EFI` (U-Boot or GRUB) and/or EFISTUB kernel Image into the FAT32 ESP  | 🔴 Critical  |
 | Persistent rootfs     | Populate ext4/btrfs partition with Buildroot output (not cpio, actual directory tree)             | 🔴 Critical  |
-| initramfs switch_root | Init script: mount rootfs → `fsck` → `switch_root /mnt/root /sbin/init`                           | 🔴 Critical  |
+| initramfs switch_root | Init script: mount rootfs -> `fsck` -> `switch_root /mnt/root /sbin/init`                           | 🔴 Critical  |
 | Kernel config         | See table below                                                                                   | 🟡 Important |
 | Device tree (real HW) | Board-specific `.dts`; U-Boot passes DTB to kernel via UEFI or appended                           | 🟡 Important |
 | ISO generation        | `xorriso` / `grub-mkrescue` for UEFI-bootable `.iso`; primarily useful for optical/USB media      | 🟠 Useful    |
@@ -114,16 +114,16 @@ OpenSBI (M-mode, ROM or SPI flash)
 
 ```
 Step 1  Compile U-Boot for RISC-V (EFI_LOADER=y)
-        └→ new Makefile targets: uboot, build_uboot
+        └-> new Makefile targets: uboot, build_uboot
 
 Step 2  Kernel config: enable EFI_STUB + EXT4 + VIRTIO_BLK + MODULES + DEVTMPFS
-        └→ extend gen-config.py to emit these for rootfs.type = "disk"
+        └-> extend gen-config.py to emit these for rootfs.type = "disk"
 
 Step 3  Disk image generation script
-        └→ scripts/gen-disk-image.sh (or Python):
-           dd → sgdisk (GPT) → mkfs.fat (ESP) → mkfs.ext4 (rootfs)
-           → mount & populate → umount
-        └→ new Makefile target: make disk_image
+        └-> scripts/gen-disk-image.sh (or Python):
+           dd -> sgdisk (GPT) -> mkfs.fat (ESP) -> mkfs.ext4 (rootfs)
+           -> mount & populate -> umount
+        └-> new Makefile target: make disk_image
 
 Step 4  Populate ESP: kernel Image as EFISTUB  (EFI/BOOT/BOOTRISCV64.EFI)
         or place U-Boot EFI app + kernel beside it
@@ -172,7 +172,7 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 | **libc**           | musl                                           | 10x smaller than glibc, static-link friendly, Alpine/Chimera proven                                  |
 | **Init**           | dinit                                          | C++, dependency graph, readiness notification, Chimera/eweOS default, Apache-2.0                     |
 | **Device mgmt**    | mdevd + libudev-zero                           | skarnet synchronous device manager + udev-compat API, zero systemd deps                              |
-| **Coreutils**      | busybox (initial) → uutils/coreutils (gradual) | uutils v0.6.0, 22.8k stars, CI has riscv64+musl build; busybox as fallback                           |
+| **Coreutils**      | busybox (initial) -> uutils/coreutils (gradual) | uutils v0.6.0, 22.8k stars, CI has riscv64+musl build; busybox as fallback                           |
 | **Shell**          | bash (interactive default) + dash (`/bin/sh`)  | POSIX compat mandatory for system scripts; nushell available as optional package                     |
 | **Filesystem**     | btrfs (default) + ext4 (fallback)              | btrfs: in-kernel stable, COW, snapshots, zstd compression; ext4 fallback for SD-card/low-RAM targets |
 | **Package mgmt**   | apk-tools 3.x                                  | C, musl-native (built for Alpine), atomic transactions, SHA-256 verification                         |
@@ -184,8 +184,8 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 | **Security**       | Landlock LSM + seccomp-bpf + dm-verity         | All in-kernel stable subsystems                                                                      |
 | **Containers**     | crun (Phase 4)                                 | Pure C OCI runtime, Fedora/RHEL production use                                                       |
 | **Compression**    | zstd everywhere                                | Kernel, initramfs, packages, btrfs transparent compression                                           |
-| **Boot**           | OpenSBI → U-Boot (UEFI) → EFISTUB kernel       | Standard UEFI boot path for real hardware                                                            |
-| **Rust CLI tools** | ripgrep, fd (Phase 2→4 gradual)                | Cross-compile verified; introduced incrementally via package repo                                    |
+| **Boot**           | OpenSBI -> U-Boot (UEFI) -> EFISTUB kernel       | Standard UEFI boot path for real hardware                                                            |
+| **Rust CLI tools** | ripgrep, fd (Phase 2->4 gradual)                | Cross-compile verified; introduced incrementally via package repo                                    |
 
 ### Rejected or Deferred Selections
 
@@ -206,7 +206,7 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | **OpenSSL 3.x over LibreSSL**                                    | LibreSSL has cleaner code, but Alpine dropped it in 2023 after years of patching upstream compat gaps. OpenSSL 3.x provider architecture is the safer long-term bet for ecosystem compat.                                         |
 | **btrfs default + ext4 fallback**                                | btrfs COW causes write amplification on SD cards and doubles RAM pressure on low-memory SBCs. ext4 profile available for constrained targets.                                                                                     |
-| **Dual-partition A/B (Phase 1) → btrfs subvolume A/B (Phase 3)** | Subvolume A/B is more elegant but couples boot infrastructure to btrfs internals early. Starting with simple dual partitions avoids premature complexity; migrate once package management matures.                                |
+| **Dual-partition A/B (Phase 1) -> btrfs subvolume A/B (Phase 3)** | Subvolume A/B is more elegant but couples boot infrastructure to btrfs internals early. Starting with simple dual partitions avoids premature complexity; migrate once package management matures.                                |
 | **`system-unlock` escape hatch**                                 | Strict immutable rootfs is more secure but can brick a device during development. `system-unlock` remounts rw + stamps a flag; next boot warns until re-sealed. Balances security with operability.                               |
 | **musl over glibc**                                              | musl is 10x smaller, static-link friendly, proven by Alpine/Chimera. Tradeoffs: no `nsswitch.conf` (breaks LDAP/NIS), `dlopen` locale loading absent, some pthread edge-case differences. Acceptable for a minimal RISC-V distro. |
 | **dinit over s6-rc**                                             | s6-rc is more battle-tested (skarnet ecosystem). dinit has simpler service notation, wider community adoption (Chimera, eweOS), and active development.                                                                           |
@@ -218,7 +218,7 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 ┌───────────────────────────────────────────────────────┐
 │                    User Interface                     │
 │  bash (default) · dash (/bin/sh) · nushell (optional) │
-│  uutils-coreutils (Phase 2→4 gradual)                 │
+│  uutils-coreutils (Phase 2->4 gradual)                 │
 │  ripgrep · fd · openssh                               │
 ├───────────────────────────────────────────────────────┤
 │                    Package Management                 │
@@ -244,8 +244,8 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 │  OpenSSL 3.x (C ecosystem) · rustls (Rust ecosystem)  │
 ├───────────────────────────────────────────────────────┤
 │                    Firmware / Boot                    │
-│  OpenSBI → U-Boot (UEFI) → EFISTUB kernel             │
-│  dual-partition A/B (P1) → btrfs subvol A/B (P3)      │
+│  OpenSBI -> U-Boot (UEFI) -> EFISTUB kernel             │
+│  dual-partition A/B (P1) -> btrfs subvol A/B (P3)      │
 ├───────────────────────────────────────────────────────┤
 │                    Hardware                           │
 │  QEMU virt · Spike · VisionFive 2 · Milk-V Jupiter    │
@@ -254,7 +254,7 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 
 ## Phased Development Plan
 
-### Phase 0: Build System Modernisation (0 → 3 weeks)
+### Phase 0: Build System Modernisation (0 -> 3 weeks)
 
 | Task                         | Description                                                                                                                                                                                                                                                                                                       |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -264,18 +264,18 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 | 0.4 CI/CD pipeline           | GitHub Actions: build + QEMU smoke boot test + artifact upload; every commit verified bootable                                                                                                                                                                                                                    |
 | 0.5 Reproducible builds      | Lock all source hashes (kernel, OpenSBI, toolchain) in `lock.toml`; bit-for-bit reproducibility                                                                                                                                                                                                                   |
 
-### Phase 1: Bootable Disk Image + Immutable Root (3 → 8 weeks)
+### Phase 1: Bootable Disk Image + Immutable Root (3 -> 8 weeks)
 
 **Goal**: produce a GPT disk image (`.img`) that boots in QEMU via virtio-blk
 and can be `dd`'d to an SD card for real RISC-V hardware.
 
 | Task                             | Description                                                                                                                                                                                                   |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1.0 U-Boot integration           | Cross-compile U-Boot for RISC-V (`qemu-riscv64_smode_defconfig` + `CONFIG_EFI_LOADER=y`); new targets `make uboot` / `make build_uboot`; boot chain: OpenSBI → U-Boot (UEFI) → EFISTUB kernel                 |
+| 1.0 U-Boot integration           | Cross-compile U-Boot for RISC-V (`qemu-riscv64_smode_defconfig` + `CONFIG_EFI_LOADER=y`); new targets `make uboot` / `make build_uboot`; boot chain: OpenSBI -> U-Boot (UEFI) -> EFISTUB kernel                 |
 | 1.1 GPT disk image generation    | `make disk_image`: create GPT image via `sgdisk`/`sfdisk` — ESP (FAT32, 256 MiB) + rootfs-A (ext4/btrfs) + rootfs-B + data partition; `scripts/gen-disk-image.sh`                                             |
 | 1.2 Root filesystem              | Default: btrfs with transparent zstd compression (`CONFIG_BTRFS_FS=y`). Fallback: ext4 profile for SD-card / low-RAM targets (avoid COW write amplification). Populate from Buildroot `rootfs.tar` (not cpio) |
 | 1.3 Immutable root + overlay     | `/` mounted read-only; `/etc`, `/var` via overlayfs mapped to writable data partition                                                                                                                         |
-| 1.4 Modern initramfs             | Minimal init script (or Rust binary): mount rootfs → `fsck` → verify integrity → `switch_root /mnt/root /sbin/init`                                                                                           |
+| 1.4 Modern initramfs             | Minimal init script (or Rust binary): mount rootfs -> `fsck` -> verify integrity -> `switch_root /mnt/root /sbin/init`                                                                                           |
 | 1.5 Dual-partition A/B boot      | Two rootfs partitions (A/B); U-Boot selects active slot via `boot_slot` env, mark good on success, auto-rollback on failure. Simple and filesystem-agnostic — no btrfs subvolume dependency at this stage     |
 | 1.6 `system-unlock` escape hatch | `system-unlock` remounts rootfs read-write for emergency debugging; stamps `/data/.unlocked` flag, warns on next boot to re-seal                                                                              |
 | 1.7 QEMU virtio-blk boot         | `make test_disk`: `qemu-system-riscv64 -M virt -drive file=disk.img,format=raw -device virtio-blk-device,...`; verify persistence + immutable root + overlay writes + A/B rollback                            |
@@ -284,7 +284,7 @@ and can be `dd`'d to an SD card for real RISC-V hardware.
 
 **Milestone artifact**: `make configure SYSTEM=configs/qemu-rv64-disk.toml && make build && make test` boots from a self-contained `disk.img` with persistent rootfs.
 
-### Phase 2: Modern Userspace (8 → 16 weeks)
+### Phase 2: Modern Userspace (8 -> 16 weeks)
 
 | Task                            | Description                                                                                                       |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -297,7 +297,7 @@ and can be `dd`'d to an SD card for real RISC-V hardware.
 | 2.7 User/permission model       | Minimal `/etc/passwd` `/etc/shadow` `/etc/group`, non-root user, doas for privilege escalation                    |
 | 2.8 Rust CLI tools (batch 1)    | Package ripgrep (`rg`) and fd for the target; available as optional installs                                      |
 
-### Phase 3: Package Management + System Updates (16 → 24 weeks)
+### Phase 3: Package Management + System Updates (16 -> 24 weeks)
 
 | Task                            | Description                                                                                                                                                                                                                                         |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -306,10 +306,10 @@ and can be `dd`'d to an SD card for real RISC-V hardware.
 | 3.3 Package repository + index  | Static HTTP repository (GitHub Releases / S3); signed index, incremental sync                                                                                                                                                                       |
 | 3.4 Base package set            | Core ~50 packages: musl, busybox, bash, dash, dinit, kmod, iproute2, openssl, openssh, curl, git                                                                                                                                                    |
 | 3.5 Declarative system config   | `system.toml` describes complete system state (packages, services, users, network); `system-rebuild` atomically applies                                                                                                                             |
-| 3.6 btrfs subvolume A/B upgrade | Migrate from Phase 1 dual-partition A/B to btrfs subvolume A/B; `system-upgrade`: download new rootfs → write to standby subvolume → reboot → verify → mark good → old subvolume retained for rollback. ext4 profile stays on dual-partition scheme |
+| 3.6 btrfs subvolume A/B upgrade | Migrate from Phase 1 dual-partition A/B to btrfs subvolume A/B; `system-upgrade`: download new rootfs -> write to standby subvolume -> reboot -> verify -> mark good -> old subvolume retained for rollback. ext4 profile stays on dual-partition scheme |
 | 3.7 OpenSSL 3.x integration     | Verify OpenSSL 3.x across all C packages (openssh, curl, etc.); enable provider-based crypto architecture                                                                                                                                           |
 
-### Phase 4: Security Hardening + Containers + Real Hardware (24 → 34 weeks)
+### Phase 4: Security Hardening + Containers + Real Hardware (24 -> 34 weeks)
 
 | Task                              | Description                                                                                                                      |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -324,12 +324,12 @@ and can be `dd`'d to an SD card for real RISC-V hardware.
 | 4.9 uutils as default             | After sufficient testing, switch default coreutils from busybox to uutils                                                        |
 | 4.10 Self-hosting verification    | Compile all packages on the distribution itself using Rust + C toolchain on musl                                                 |
 
-### Phase 5: Distribution Identity + Community (34 → 48 weeks)
+### Phase 5: Distribution Identity + Community (34 -> 48 weeks)
 
 | Task                               | Description                                                                                                            |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 5.1 Distribution naming + branding | `/etc/os-release`, boot splash, MOTD, logo                                                                             |
-| 5.2 TUI installer                  | Rust-based TUI installer (like `archinstall`): disk partitioning → rootfs deploy → user creation → network config      |
+| 5.2 TUI installer                  | Rust-based TUI installer (like `archinstall`): disk partitioning -> rootfs deploy -> user creation -> network config      |
 | 5.3 Documentation site             | mdbook static site: install guide, package management, porting guide, architecture docs                                |
 | 5.4 Downloadable images            | `.img.zst` disk images (GPT, from Phase 1.1), dd-writable to SD card; UEFI-bootable `.iso` via `xorriso` for USB media |
 | 5.5 Package contribution guide     | Community can submit APKBUILD PRs; CI auto-cross-compiles + tests + publishes to repository                            |
@@ -346,7 +346,7 @@ Current ── P0 ──── P1 ────────── P2 ────
  experiment +CI"    UEFI/U-Boot"  tools"  updates" boot"  distribution"
 
     ▼
-████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ → goal
+████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -> goal
 ~10%                                                      100%
 ```
 

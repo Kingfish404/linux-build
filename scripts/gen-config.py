@@ -106,10 +106,10 @@ def deep_get(d: dict, *keys: str, default: Any = None) -> Any:
 def kconfig_line(key: str, val: Any) -> str:
     """Format a single kernel config line.
 
-    val=True  → CONFIG_KEY=y
-    val=False → # CONFIG_KEY is not set
-    val=str   → CONFIG_KEY="str"
-    val=int   → CONFIG_KEY=int
+    val=True  -> CONFIG_KEY=y
+    val=False -> # CONFIG_KEY is not set
+    val=str   -> CONFIG_KEY="str"
+    val=int   -> CONFIG_KEY=int
     """
     full = f"CONFIG_{key}" if not key.startswith("CONFIG_") else key
     if val is True:
@@ -145,7 +145,7 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
     isa_br  = arch["fpu_isa"] if buildroot_fpu else arch["nofpu_isa"]
     abi_br  = arch["fpu_abi"] if buildroot_fpu else arch["nofpu_abi"]
 
-    kver      = deep_get(cfg, "kernel", "version", default="6.18.15")
+    kver      = deep_get(cfg, "kernel", "version", default="6.18.22")
     rootfs_ty = deep_get(cfg, "rootfs", "type", default="initramfs")
     compress  = deep_get(cfg, "rootfs", "compression", default="gzip")
     loader    = deep_get(cfg, "boot", "loader", default="qemu")
@@ -193,7 +193,7 @@ def gen_kernel_config(cfg: dict) -> str:
 
     lines = [
         "# Auto-generated shared kernel config — DO NOT EDIT",
-        "# Source: system.toml  →  applied via scripts/config",
+        "# Source: system.toml  ->  applied via scripts/config",
         "",
     ]
 
@@ -257,7 +257,7 @@ def gen_buildroot_config(cfg: dict) -> str:
 
     lines = [
         "# Auto-generated Buildroot config fragment — DO NOT EDIT",
-        "# Source: system.toml  →  applied on top of qemu_riscv*_virt_defconfig",
+        "# Source: system.toml  ->  applied on top of qemu_riscv*_virt_defconfig",
         "",
         "# --- Output format ---",
         "BR2_TARGET_ROOTFS_CPIO=y",

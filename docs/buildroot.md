@@ -11,10 +11,10 @@ initramfs used by this project.
 ## Quick Start
 
 ```bash
-# Configure from preset (generates .config.buildroot)
-make configure SYSTEM=configs/qemu-rv64-buildroot.toml
+# Configure from preset (generates .config.{mk,kernel*,buildroot})
+make configure SYSTEM=configs/qemu-rv64.toml
 
-# Full build
+# Full build (builds both the minimal and the Buildroot variants)
 make build
 
 # Or step-by-step:
@@ -29,8 +29,8 @@ The **fastest path** uses QEMU's split-load mode (separate kernel + initramfs), 
 avoids re-embedding the initramfs into the kernel and rebuilding OpenSBI:
 
 ```bash
-# Edit configs/qemu-rv64-buildroot.toml (change [rootfs.packages]), then:
-make configure SYSTEM=configs/qemu-rv64-buildroot.toml   # regenerate .config.buildroot
+# Edit configs/qemu-rv64.toml (change [buildroot.packages]), then:
+make configure SYSTEM=configs/qemu-rv64.toml   # regenerate .config.buildroot
 make BITS=64 update_buildroot              # incremental Buildroot rebuild only
 make BITS=64 test_qemu_kernel_buildroot    # boot with separate kernel + initramfs
 ```
@@ -54,13 +54,13 @@ make BITS=32 make_initramfs_buildroot_clean
 
 ## Customising Packages
 
-Package selection is defined in the TOML preset file under `[rootfs.packages]`.
+Package selection is defined in the TOML preset file under `[buildroot.packages]`.
 Running `make configure` generates `.config.buildroot` from those declarations.
 
-Example preset (`configs/qemu-rv64-buildroot.toml`):
+Example preset (`configs/qemu-rv64.toml`):
 
 ```toml
-[rootfs.packages]
+[buildroot.packages]
 include = [
     "openssh",
     "wget",
@@ -77,21 +77,25 @@ top of Buildroot's `qemu_riscv{32,64}_virt_defconfig`. It controls:
 
 - **Output format** — cpio + gzip/zstd
 - **Extra packages** — mapped from the `include` list
-- **Shell** — optionally set via `[rootfs.packages] shell = "bash"`
+- **Shell** — optionally set via `[buildroot.packages] shell = "bash"`
 - **Root password** — optionally set via `root_password = "root"`
 
 To add or remove packages, edit the TOML preset, then rebuild:
 
 ```bash
-make configure SYSTEM=configs/qemu-rv64-buildroot.toml   # regenerate config
-make BITS=64 update_buildroot                             # fast incremental path
+make configure SYSTEM=configs/qemu-rv64.toml   # regenerate config
+make BITS=64 update_buildroot                   # fast incremental path
 ```
 
 ### FPU / ABI Note
 
-`make_initramfs_buildroot` automatically re-enables `CONFIG_FPU` in the kernel after
-building the Buildroot rootfs, because Buildroot's default toolchain targets the hard-float
-`lp64d` / `ilp32d` ABI. The simple `init_loop` initramfs is unaffected and stays FPU-free.
+The two variants use different kernel configurations generated from the TOML preset:
+
+- `.config.kernel.minimal` disables `CONFIG_FPU` (kernel ISA `imac`) — used by `build_linux`.
+- `.config.kernel.buildroot` enables `CONFIG_FPU` (kernel ISA `imafd`) — applied by
+  `package_buildroot` when assembling the Buildroot release, because Buildroot's default
+  toolchain targets the hard-float `lp64d` / `ilp32d` ABI. The minimal `init_loop` initramfs
+  is unaffected and stays FPU-free.
 
 ## Large Rootfs and Memory Limits
 
@@ -137,39 +141,40 @@ make BITS=64 QEMU_MEM=1024 test_qemu_buildroot
 
 ## Build Targets Reference
 
-| Target                           | Description                                                                                          |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `make_initramfs_buildroot`       | Build Buildroot rootfs (incremental) → `initramfs$(BITS)-buildroot.cpio.gz`; re-enables `CONFIG_FPU` |
-| `make_initramfs_buildroot_clean` | Full clean Buildroot rebuild (`distclean` first — slow but guaranteed clean)                         |
-| `install_initramfs_buildroot`    | Embed Buildroot cpio into kernel Image (`CONFIG_INITRAMFS_SOURCE`)                                   |
-| `update_buildroot`               | Incremental Buildroot rebuild only (fastest iteration for package changes)                           |
-| `update_buildroot_full`          | Buildroot rebuild + re-embed initramfs into kernel + rebuild OpenSBI                                 |
-| `package_buildroot`              | Bundle Buildroot artifacts into `dist/linux-riscv-rv$(BITS)-buildroot-v*.tar.gz`                     |
-| `clean_buildroot`                | Remove Buildroot clone(s) (`buildroot32/`, `buildroot64/`)                                           |
+| Target                           | Description                                                                                    |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `make_initramfs_buildroot`       | Build Buildroot rootfs (incremental) -> `initramfs$(BITS)-buildroot.cpio.gz`                   |
+| `make_initramfs_buildroot_clean` | Full clean Buildroot rebuild (`distclean` first — slow but guaranteed clean)                   |
+| `install_initramfs_buildroot`    | Embed Buildroot cpio into kernel Image (`CONFIG_INITRAMFS_SOURCE`)                             |
+| `update_buildroot`               | Incremental Buildroot rebuild only (fastest iteration for package changes)                     |
+| `update_buildroot_full`          | Buildroot rebuild + re-embed initramfs into kernel + rebuild OpenSBI                           |
+| `package_buildroot`              | Bundle Buildroot artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-buildroot-v*.tar.gz`      |
+| `clean_buildroot`                | Remove Buildroot clone(s) (`buildroot32/`, `buildroot64/`)                                     |
 
 ## Output Paths
 
-Buildroot initramfs outputs are separate from the simple (init_loop) initramfs, so both
+Buildroot initramfs outputs are separate from the minimal (init_loop) initramfs, so both
 can coexist without overwriting each other:
 
-| Path                            | Description                |
-| ------------------------------- | -------------------------- |
-| `initramfs32.cpio.gz`           | Simple initramfs (RV32)    |
-| `initramfs32-buildroot.cpio.gz` | Buildroot initramfs (RV32) |
-| `initramfs64.cpio.gz`           | Simple initramfs (RV64)    |
-| `initramfs64-buildroot.cpio.gz` | Buildroot initramfs (RV64) |
+| Path                            | Description                 |
+| ------------------------------- | --------------------------- |
+| `initramfs32.cpio.gz`           | Minimal initramfs (RV32)    |
+| `initramfs32-buildroot.cpio.gz` | Buildroot initramfs (RV32)  |
+| `initramfs64.cpio.gz`           | Minimal initramfs (RV64)    |
+| `initramfs64-buildroot.cpio.gz` | Buildroot initramfs (RV64)  |
 
 ### Packaging
 
-Buildroot packages are distinct from simple initramfs packages:
+Release tarballs for the two variants are named distinctly; the `<preset>` component
+comes from the configured `SYSTEM_PRESET` (set by `make configure`):
 
 ```bash
-# Package simple initramfs (default)
-make BITS=32 package          # → dist/linux-riscv-rv32-v<ver>.tar.gz
+# Package minimal initramfs
+make BITS=32 package            # -> dist/linux-riscv-rv32-<preset>-v<ver>.tar.gz
 
 # Package Buildroot variant
-make BITS=32 package_buildroot  # → dist/linux-riscv-rv32-buildroot-v<ver>.tar.gz
+make BITS=32 package_buildroot  # -> dist/linux-riscv-rv32-<preset>-buildroot-v<ver>.tar.gz
 
-# Package everything (simple + buildroot, 32 + 64)
+# Package both variants for the current BITS
 make package_all
 ```

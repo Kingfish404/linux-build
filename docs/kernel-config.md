@@ -17,19 +17,21 @@ minimise CPU feature requirements.
 
 ## Buildroot and FPU
 
-`make_initramfs_buildroot` **re-enables `CONFIG_FPU`** after building the rootfs, because
-Buildroot's default toolchain produces hard-float binaries (`lp64d` / `ilp32d` ABI).  
-This means the Buildroot kernel variant effectively targets **rv32imafd / rv64imafd**,
-not just `imac`.
+The declarative build generates **two** kernel config fragments from each preset:
 
-| Variant   | `CONFIG_FPU` | Effective kernel ISA | Userspace ABI       |
-| --------- | ------------ | -------------------- | ------------------- |
-| Simple    | disabled     | rv32imac / rv64imac  | ilp32 / lp64        |
-| Buildroot | **enabled**  | rv32imafd / rv64imafd | ilp32d / lp64d     |
+- `.config.kernel.minimal` \u2014 `CONFIG_FPU=n` (ISA `imac`). Applied by `build_linux`.
+- `.config.kernel.buildroot` \u2014 `CONFIG_FPU=y` (ISA `imafd`). Applied by
+  `package_buildroot` when assembling the Buildroot release, because Buildroot's
+  default toolchain produces hard-float binaries (`lp64d` / `ilp32d` ABI).
 
-> The simple `init_loop` initramfs is unaffected and stays FPU-free.
-> If you switch between simple and buildroot initramfs on the same build tree,
-> the kernel's `CONFIG_FPU` state will change accordingly.
+| Variant   | `CONFIG_FPU` | Effective kernel ISA  | Userspace ABI   |
+| --------- | ------------ | --------------------- | --------------- |
+| Minimal   | disabled     | rv32imac / rv64imac   | ilp32 / lp64    |
+| Buildroot | **enabled**  | rv32imafd / rv64imafd | ilp32d / lp64d  |
+
+> The minimal `init_loop` initramfs is unaffected and stays FPU-free.
+> If you switch which fragment is applied on the same build tree, the kernel's
+> `CONFIG_FPU` state will change accordingly.
 
 ## init Payload (`payload/init_loop.c`)
 

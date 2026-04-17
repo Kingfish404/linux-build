@@ -9,7 +9,7 @@ PWD_DIR=$(abspath .)
 # ---------------------------------------------------------------------------
 -include $(PWD_DIR)/.config.mk
 
-KERNEL_VERSION ?= 6.18.20
+KERNEL_VERSION ?= 6.18.22
 
 # Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32
@@ -71,11 +71,11 @@ SPIKE_MEM    ?= 512
 # Prefix command with timeout if QEMU_TIMEOUT is set
 IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
 
-# Derive kernel major version for download URL (e.g. 6.18.15 → v6.x, 7.0.1 → v7.x)
+# Derive kernel major version for download URL (e.g. 6.18.22 -> v6.x, 7.0.1 -> v7.x)
 KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
-# Include config preset name when available (e.g. linux-riscv-rv32-qemu-rv32-v6.18.20)
+# Include config preset name when available (e.g. linux-riscv-rv32-qemu-rv32-v6.18.22)
 ifneq ($(SYSTEM_PRESET),)
   RELEASE_NAME    := linux-riscv-rv$(BITS)-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
 else
@@ -146,7 +146,7 @@ help:
 	@echo "Config:        $(if $(wildcard $(PWD_DIR)/.config.mk),.config.mk loaded,(none — use 'make configure'))"
 	@echo ""
 	@echo "--- Declarative Build (recommended) ---"
-	@echo "  configure SYSTEM=<toml>      - Parse system.toml → generate .config.{mk,kernel,buildroot}"
+	@echo "  configure SYSTEM=<toml>      - Parse system.toml -> generate .config.{mk,kernel,buildroot}"
 	@echo "  build                        - Full build driven by .config.mk (kernel+rootfs+firmware)"
 	@echo "  test                         - Boot in emulator per config (QEMU or Spike)"
 	@echo "  clean_config                 - Remove generated .config.* files"
@@ -189,8 +189,8 @@ help:
 	@echo "  clean                        - Remove all build artefacts"
 	@echo ""
 	@echo "--- Package & Release ---"
-	@echo "  package                      - Bundle rv$(BITS) simple artifacts → $(RELEASE_TARBALL)"
-	@echo "  package_buildroot            - Bundle rv$(BITS) buildroot artifacts → $(BUILDROOT_RELEASE_TARBALL)"
+	@echo "  package                      - Bundle rv$(BITS) simple artifacts -> $(RELEASE_TARBALL)"
+	@echo "  package_buildroot            - Bundle rv$(BITS) buildroot artifacts -> $(BUILDROOT_RELEASE_TARBALL)"
 	@echo "  package_all                  - Bundle rv32 + rv64 tarballs (simple + buildroot)"
 	@echo "  github_release               - Create GitHub Release and upload tarballs (requires gh CLI)"
 	@echo "  clean_packages               - Remove release tarballs from workspace"
@@ -211,7 +211,7 @@ all: help
 # Declarative build targets
 # ---------------------------------------------------------------------------
 #
-# make configure SYSTEM=configs/<preset>.toml   — parse TOML → .config.{mk,kernel,buildroot}
+# make configure SYSTEM=configs/<preset>.toml   — parse TOML -> .config.{mk,kernel,buildroot}
 # make build                                    — full build driven by .config.mk
 # make test                                     — boot in QEMU/Spike per config
 # make clean_config                             — remove generated .config.* files
@@ -426,9 +426,9 @@ build_all: linux opensbi
 # Package: bundle build artifacts into a distributable tarball
 #
 # Usage:
-#   make BITS=32 package   → linux-riscv-rv32-v<ver>.tar.gz
-#   make BITS=64 package   → linux-riscv-rv64-v<ver>.tar.gz
-#   make package_all       → both tarballs
+#   make BITS=32 package   -> linux-riscv-rv32-v<ver>.tar.gz
+#   make BITS=64 package   -> linux-riscv-rv64-v<ver>.tar.gz
+#   make package_all       -> both tarballs
 # ---------------------------------------------------------------------------
 
 package: linux opensbi
@@ -465,8 +465,8 @@ package_all:
 # GitHub Release  (requires the 'gh' CLI: https://cli.github.com)
 #
 # Usage:
-#   make github_release                    # tag = <preset>-v<KERNEL_VERSION>
-#   make github_release TAG=v6.18.15-rc1  # custom tag
+#   make github_release					# tag = <preset>-v<KERNEL_VERSION>
+#   make github_release TAG=v6.18.22  	# custom tag
 #
 # All tarballs must exist (run 'make package_all' first).
 # ---------------------------------------------------------------------------

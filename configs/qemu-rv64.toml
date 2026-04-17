@@ -11,7 +11,7 @@
 arch = "riscv64"
 
 [kernel]
-version = "6.18.20"
+version = "6.18.22"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]

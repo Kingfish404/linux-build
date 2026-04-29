@@ -1,0 +1,50 @@
+# system config: RISC-V 64-bit, QEMU
+#
+# Both minimal and buildroot variants are built from this single config.
+#
+# Build:  make configure SYSTEM=configs/qemu-rv64.toml
+#         make build
+# Test:   make test                              # boots minimal
+#         make test_qemu_kernel_buildroot        # boots buildroot
+
+[target]
+arch = "riscv64"
+
+[kernel]
+version = "6.18.22"
+
+# Shared kernel config applied to all variants (on top of defconfig)
+[kernel.config]
+
+[rootfs]
+type = "initramfs"
+compression = "gzip"
+
+# --- Minimal variant (init_loop, no FPU) ---
+[minimal]
+fpu = false
+
+[minimal.kernel.config]
+FPU = false
+RISCV_ISA_ZAWRS = false
+RISCV_ISA_ZICBOM = false
+RISCV_ISA_ZICBOZ = false
+
+# --- Buildroot variant (busybox rootfs, FPU enabled) ---
+[buildroot]
+fpu = true
+ssh_port = 2222
+
+[buildroot.kernel.config]
+FPU = true
+RISCV_ISA_ZAWRS = false
+RISCV_ISA_ZICBOM = false
+RISCV_ISA_ZICBOZ = false
+
+[buildroot.packages]
+include = ["openssh"]
+
+[boot]
+loader = "qemu"
+memory = 256
+timeout = 0

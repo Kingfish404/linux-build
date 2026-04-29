@@ -75,11 +75,11 @@ IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
 KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
-# Include config preset name when available (e.g. linux-riscv-rv32-qemu-rv32-v6.18.22)
+# Include config preset name when available (e.g. linux-riscv-qemu-rv32-v6.18.22)
 ifneq ($(SYSTEM_PRESET),)
-  RELEASE_NAME    := linux-riscv-rv$(BITS)-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
+  RELEASE_NAME    := linux-riscv-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
 else
-  RELEASE_NAME    := linux-riscv-rv$(BITS)-v$(KERNEL_VERSION)
+  RELEASE_NAME    := linux-riscv-$(BITS)-v$(KERNEL_VERSION)
 endif
 RELEASE_TARBALL := $(PWD_DIR)/dist/$(RELEASE_NAME).tar.gz
 # Staging directory under dist/ (cleaned after tarball is created)

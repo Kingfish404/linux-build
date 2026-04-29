@@ -1,0 +1,161 @@
+# system config: RISC-V 32-bit, QEMU
+#
+# Both minimal and buildroot variants are built from this single config.
+#
+# Build:  make configure SYSTEM=configs/qemu-rv32.toml
+#         make build
+# Test:   make test                              # boots minimal
+#         make test_qemu_kernel_buildroot        # boots buildroot
+
+[target]
+arch = "riscv32"
+
+[kernel]
+version = "6.18.22"
+
+# Shared kernel config applied to all variants (on top of defconfig)
+[kernel.config]
+# Fast-boot profile: disable expensive debug, tracing and hardening checks.
+DEBUG_KERNEL = false
+SLUB_DEBUG = false
+FTRACE = false
+BPF = false
+BPF_SYSCALL = false
+AUDIT = false
+PRINTK_TIME = false
+STACKPROTECTOR = false
+STACKPROTECTOR_STRONG = false
+
+# More aggressive boot-time trimming.
+# Keep early boot logs but reduce volume and buffer work.
+CONSOLE_LOGLEVEL_DEFAULT = 7
+MESSAGE_LOGLEVEL_DEFAULT = 7
+LOG_BUF_SHIFT = 14
+
+# Remove optional introspection and loadable module support.
+IKCONFIG = false
+IKCONFIG_PROC = false
+KALLSYMS = false
+MODULES = false
+
+# Minimize userspace feature surface for initramfs-only boot.
+CGROUPS = false
+NAMESPACES = false
+SECCOMP = false
+SECURITY = false
+
+# Drop heavyweight peripheral / stack subsystems not needed for init_loop.
+NET = false
+SOUND = false
+INPUT = false
+HID = false
+USB_SUPPORT = false
+PCI = false
+VGA_CONSOLE = false
+DRM = false
+FB = false
+
+[rootfs]
+type = "initramfs"
+compression = "gzip"
+
+# --- Minimal variant (init_loop, no FPU) ---
+[minimal]
+fpu = false
+
+[minimal.kernel.config]
+FPU = false
+RISCV_ISA_ZAWRS = false
+RISCV_ISA_ZBA = false
+RISCV_ISA_ZBB = false
+RISCV_ISA_ZBC = false
+RISCV_ISA_ZICBOM = false
+RISCV_ISA_ZICBOZ = false
+
+# Push toward Xiangshan-like minimal boot path (initramfs + /init only).
+SMP = false
+EFI = false
+EFI_STUB = false
+RCU_TRACE = false
+TASKS_TRACE_RCU = false
+VT = false
+
+# Keep only initramfs boot essentials.
+BLK_DEV_INITRD = true
+RD_GZIP = true
+
+# Eliminate storage/network and virtual FS stacks not used by init_loop.
+SCSI = false
+BLK_DEV_SD = false
+VIRTIO_BLK = false
+BLK_DEV_LOOP = false
+NET = false
+INET = false
+IPV6 = false
+VIRTIO_NET = false
+NFS_FS = false
+NFS_V4 = false
+9P_FS = false
+NET_9P = false
+
+# Eliminate platform buses/peripherals we do not use on this path.
+PCI = false
+USB = false
+SOUND = false
+INPUT = false
+HID = false
+
+# Cut additional init-time subsystems still visible in boot logs.
+PM = false
+PM_SLEEP = false
+CPU_IDLE = false
+THERMAL = false
+PINCTRL = false
+IOMMU_SUPPORT = false
+DMI = false
+HW_RANDOM = false
+
+# Remove storage scheduler / block extras for initramfs-only workload.
+BLK_DEV_BSG = false
+MQ_IOSCHED_DEADLINE = false
+MQ_IOSCHED_KYBER = false
+IOSCHED_BFQ = false
+MMC = false
+
+# Remove network-adjacent RPC stack that can remain enabled via defaults.
+SUNRPC = false
+LOCKD = false
+
+# Trim generic userspace features not needed by init_loop.
+SYSVIPC = false
+POSIX_TIMERS = false
+FUTEX = false
+BINFMT_SCRIPT = false
+COREDUMP = false
+
+# Lower periodic tick overhead for single-core spin-loop boot target.
+HZ_100 = true
+HZ_250 = false
+HZ = 100
+
+# --- Buildroot variant (busybox rootfs, FPU enabled) ---
+[buildroot]
+fpu = true
+ssh_port = 2222
+
+[buildroot.kernel.config]
+FPU = true
+RISCV_ISA_ZAWRS = false
+RISCV_ISA_ZBA = false
+RISCV_ISA_ZBB = false
+RISCV_ISA_ZBC = false
+RISCV_ISA_ZICBOM = false
+RISCV_ISA_ZICBOZ = false
+
+[buildroot.packages]
+include = ["openssh"]
+
+[boot]
+loader = "qemu"
+memory = 64
+timeout = 0

@@ -11,7 +11,7 @@
 arch = "riscv64"
 
 [kernel]
-version = "6.18.22"
+version = "6.18.29"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
@@ -20,7 +20,7 @@ version = "6.18.22"
 type = "initramfs"
 compression = "gzip"
 
-# --- Minimal variant (init_loop, no FPU) ---
+# --- Minimal variant (tiny_shell, no FPU) ---
 [minimal]
 fpu = false
 

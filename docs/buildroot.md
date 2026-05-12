@@ -14,7 +14,7 @@ initramfs used by this project.
 # Configure from preset (generates .config.{mk,kernel*,buildroot})
 make configure SYSTEM=configs/qemu-rv64.toml
 
-# Full build (builds both the minimal and the Buildroot variants)
+# Full build (builds both the tiny shell and the Buildroot variants)
 make build
 
 # Or step-by-step:
@@ -91,10 +91,10 @@ make BITS=64 update_buildroot                   # fast incremental path
 
 The two variants use different kernel configurations generated from the TOML preset:
 
-- `.config.kernel.minimal` disables `CONFIG_FPU` (kernel ISA `imac`) — used by `build_linux`.
+- `.config.kernel.minimal` disables `CONFIG_FPU` (kernel ISA `imac`) — used by the tiny shell kernel build.
 - `.config.kernel.buildroot` enables `CONFIG_FPU` (kernel ISA `imafd`) — applied by
   `package_buildroot` when assembling the Buildroot release, because Buildroot's default
-  toolchain targets the hard-float `lp64d` / `ilp32d` ABI. The minimal `init_loop` initramfs
+  toolchain targets the hard-float `lp64d` / `ilp32d` ABI. The tiny shell initramfs
   is unaffected and stays FPU-free.
 
 ## Large Rootfs and Memory Limits
@@ -153,14 +153,14 @@ make BITS=64 QEMU_MEM=1024 test_qemu_buildroot
 
 ## Output Paths
 
-Buildroot initramfs outputs are separate from the minimal (init_loop) initramfs, so both
+Buildroot initramfs outputs are separate from the tiny shell initramfs, so both
 can coexist without overwriting each other:
 
 | Path                            | Description                 |
 | ------------------------------- | --------------------------- |
-| `initramfs32.cpio.gz`           | Minimal initramfs (RV32)    |
+| `initramfs32.cpio.gz`           | Tiny shell initramfs (RV32) |
 | `initramfs32-buildroot.cpio.gz` | Buildroot initramfs (RV32)  |
-| `initramfs64.cpio.gz`           | Minimal initramfs (RV64)    |
+| `initramfs64.cpio.gz`           | Tiny shell initramfs (RV64) |
 | `initramfs64-buildroot.cpio.gz` | Buildroot initramfs (RV64)  |
 
 ### Packaging
@@ -169,7 +169,7 @@ Release tarballs for the two variants are named distinctly; the `<preset>` compo
 comes from the configured `SYSTEM_PRESET` (set by `make configure`):
 
 ```bash
-# Package minimal initramfs
+# Package tiny shell initramfs
 make BITS=32 package            # -> dist/linux-riscv-rv32-<preset>-v<ver>.tar.gz
 
 # Package Buildroot variant

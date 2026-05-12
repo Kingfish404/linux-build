@@ -10,6 +10,7 @@
 linux
 opensbi
 spike
+payload/init_shell
 
 init
 build32

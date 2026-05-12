@@ -26,14 +26,14 @@ The declarative build generates **two** kernel config fragments from each preset
 
 | Variant   | `CONFIG_FPU` | Effective kernel ISA  | Userspace ABI   |
 | --------- | ------------ | --------------------- | --------------- |
-| Minimal   | disabled     | rv32imac / rv64imac   | ilp32 / lp64    |
+| Tiny shell | disabled    | rv32imac / rv64imac   | ilp32 / lp64    |
 | Buildroot | **enabled**  | rv32imafd / rv64imafd | ilp32d / lp64d  |
 
-> The minimal `init_loop` initramfs is unaffected and stays FPU-free.
+> The tiny shell initramfs is unaffected and stays FPU-free.
 > If you switch which fragment is applied on the same build tree, the kernel's
 > `CONFIG_FPU` state will change accordingly.
 
-## init Payload (`payload/init_loop.c`)
+## init Payload (`payload/tiny_shell.c`)
 
 | Target | `-march=`                       | `-mabi=` |
 | ------ | ------------------------------- | -------- |

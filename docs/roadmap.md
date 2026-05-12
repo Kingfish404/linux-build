@@ -18,13 +18,13 @@ development plan to close that gap.
 ## Current State Assessment
 
 The project is a **RISC-V Linux build toolkit** positioned between a bare-metal
-kernel boot experiment and a simple distribution.
+kernel boot experiment and an early distribution.
 
 | Component           | Current State                                                   | Maturity |
 | ------------------- | --------------------------------------------------------------- | -------- |
-| **Kernel**          | Linux 6.18.22, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
+| **Kernel**          | Linux 6.18.29, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
 | **Firmware / Boot** | OpenSBI (fw_payload / fw_dynamic), QEMU/Spike only              | ★★★☆☆    |
-| **Root filesystem** | initramfs-only: ① bare `init_loop` dead-loop ② Buildroot rootfs | ★★☆☆☆    |
+| **Root filesystem** | initramfs-only: ① `tiny_shell` debug shell ② Buildroot rootfs | ★★☆☆☆    |
 | **Userspace**       | Buildroot provides busybox + openssh/htop/strace                | ★★☆☆☆    |
 | **Networking**      | QEMU NAT + SSH forwarding + 9P sharing                          | ★★★☆☆    |
 | **Build system**    | Makefile, well organised, incremental builds, GitHub Release    | ★★★★☆    |
@@ -59,7 +59,7 @@ pipeline. This section details every missing piece.
 OpenSBI (fw_payload / fw_dynamic)
   └-> Linux kernel Image (loaded by QEMU -bios / -kernel)
        └-> initramfs cpio.gz (RAM-only, no persistent storage)
-            └-> init: dead-loop ELF  or  busybox (Buildroot)
+            └-> init: tiny_shell  or  busybox (Buildroot)
 ```
 
 - No disk image — rootfs exists only in RAM (initramfs)
@@ -206,7 +206,7 @@ musl compatibility, and in-tree Linux kernel support (as of Linux 6.18, March 20
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | **OpenSSL 3.x over LibreSSL**                                    | LibreSSL has cleaner code, but Alpine dropped it in 2023 after years of patching upstream compat gaps. OpenSSL 3.x provider architecture is the safer long-term bet for ecosystem compat.                                         |
 | **btrfs default + ext4 fallback**                                | btrfs COW causes write amplification on SD cards and doubles RAM pressure on low-memory SBCs. ext4 profile available for constrained targets.                                                                                     |
-| **Dual-partition A/B (Phase 1) -> btrfs subvolume A/B (Phase 3)** | Subvolume A/B is more elegant but couples boot infrastructure to btrfs internals early. Starting with simple dual partitions avoids premature complexity; migrate once package management matures.                                |
+| **Dual-partition A/B (Phase 1) -> btrfs subvolume A/B (Phase 3)** | Subvolume A/B is more elegant but couples boot infrastructure to btrfs internals early. Starting with plain dual partitions avoids premature complexity; migrate once package management matures.                                 |
 | **`system-unlock` escape hatch**                                 | Strict immutable rootfs is more secure but can brick a device during development. `system-unlock` remounts rw + stamps a flag; next boot warns until re-sealed. Balances security with operability.                               |
 | **musl over glibc**                                              | musl is 10x smaller, static-link friendly, proven by Alpine/Chimera. Tradeoffs: no `nsswitch.conf` (breaks LDAP/NIS), `dlopen` locale loading absent, some pthread edge-case differences. Acceptable for a minimal RISC-V distro. |
 | **dinit over s6-rc**                                             | s6-rc is more battle-tested (skarnet ecosystem). dinit has simpler service notation, wider community adoption (Chimera, eweOS), and active development.                                                                           |
@@ -276,7 +276,7 @@ and can be `dd`'d to an SD card for real RISC-V hardware.
 | 1.2 Root filesystem              | Default: btrfs with transparent zstd compression (`CONFIG_BTRFS_FS=y`). Fallback: ext4 profile for SD-card / low-RAM targets (avoid COW write amplification). Populate from Buildroot `rootfs.tar` (not cpio) |
 | 1.3 Immutable root + overlay     | `/` mounted read-only; `/etc`, `/var` via overlayfs mapped to writable data partition                                                                                                                         |
 | 1.4 Modern initramfs             | Minimal init script (or Rust binary): mount rootfs -> `fsck` -> verify integrity -> `switch_root /mnt/root /sbin/init`                                                                                           |
-| 1.5 Dual-partition A/B boot      | Two rootfs partitions (A/B); U-Boot selects active slot via `boot_slot` env, mark good on success, auto-rollback on failure. Simple and filesystem-agnostic — no btrfs subvolume dependency at this stage     |
+| 1.5 Dual-partition A/B boot      | Two rootfs partitions (A/B); U-Boot selects active slot via `boot_slot` env, mark good on success, auto-rollback on failure. Plain and filesystem-agnostic — no btrfs subvolume dependency at this stage      |
 | 1.6 `system-unlock` escape hatch | `system-unlock` remounts rootfs read-write for emergency debugging; stamps `/data/.unlocked` flag, warns on next boot to re-seal                                                                              |
 | 1.7 QEMU virtio-blk boot         | `make test_disk`: `qemu-system-riscv64 -M virt -drive file=disk.img,format=raw -device virtio-blk-device,...`; verify persistence + immutable root + overlay writes + A/B rollback                            |
 | 1.8 Kernel config for disk boot  | Enable `EFI`, `EFI_STUB`, `MODULES`, `EXT4_FS`, `BTRFS_FS`, `VIRTIO_BLK`, `DEVTMPFS`, `DEVTMPFS_MOUNT`, `VFAT_FS`, `NLS_CODEPAGE_437`, `NLS_ISO8859_1` via `gen-config.py` when `rootfs.type = "disk"`        |

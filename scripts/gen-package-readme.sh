@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Generate a README.md for a release tarball.
-# Usage: gen-package-readme.sh <BITS> <KERNEL_VERSION> <RISCV_ISA> <RISCV_ABI> [simple|buildroot] [PRESET]
+# Usage: gen-package-readme.sh <BITS> <KERNEL_VERSION> <RISCV_ISA> <RISCV_ABI> [tiny_shell|buildroot] [PRESET]
 set -euo pipefail
 
 BITS="$1"
 KERNEL_VERSION="$2"
 RISCV_ISA="$3"
 RISCV_ABI="$4"
-VARIANT="${5:-simple}"   # "simple" (init_loop) or "buildroot" (full rootfs)
+VARIANT="${5:-tiny_shell}"   # "tiny_shell" or "buildroot" (full rootfs)
 PRESET="${6:-}"          # config preset name (e.g. "qemu-rv32")
 
 if [[ "$VARIANT" == "buildroot" ]]; then
@@ -20,14 +20,17 @@ if [[ "$VARIANT" == "buildroot" ]]; then
   QEMU_MEM="1024M"
   QEMU_NET_LINE=$'\\\n    -netdev user,id=net0,hostfwd=tcp::2222-:22 \\\n    -device virtio-net-device,netdev=net0'
   QEMU_SSH_NOTE=$'\nSSH into guest: \`ssh root@localhost -p 2222\`'
-else
+elif [[ "$VARIANT" == "tiny_shell" ]]; then
   TITLE_ISA="rv${BITS}imac"
-  TITLE_SUFFIX="simple initramfs (no FPU)"
-  INITRAMFS_DESC="Minimal root filesystem with init_loop only (cpio + gzip)"
+  TITLE_SUFFIX="tiny shell initramfs (no FPU)"
+  INITRAMFS_DESC="Minimal root filesystem with tiny interactive shell as /init (cpio + gzip)"
   FPU_NOTE="FPU is disabled; your toolchain should target \`rv${BITS}imac\` / \`${RISCV_ABI}\`."
   QEMU_MEM="512M"
   QEMU_NET_LINE=""
   QEMU_SSH_NOTE=""
+else
+  echo "ERROR: unknown variant: ${VARIANT}. Expected tiny_shell or buildroot." >&2
+  exit 2
 fi
 
 cat <<EOF
@@ -54,7 +57,7 @@ cat <<EOF
 
 ## Quickstart
 
-### 1. QEMU — single-file boot with \`fw_payload.bin\` (simplest)
+### 1. QEMU — single-file boot with \`fw_payload.bin\`
 
 \`\`\`bash
 qemu-system-riscv${BITS} -M virt -m ${QEMU_MEM} -nographic \\

@@ -145,7 +145,7 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
     isa_br  = arch["fpu_isa"] if buildroot_fpu else arch["nofpu_isa"]
     abi_br  = arch["fpu_abi"] if buildroot_fpu else arch["nofpu_abi"]
 
-    kver      = deep_get(cfg, "kernel", "version", default="6.18.22")
+    kver      = deep_get(cfg, "kernel", "version", default="6.18.29")
     rootfs_ty = deep_get(cfg, "rootfs", "type", default="initramfs")
     compress  = deep_get(cfg, "rootfs", "compression", default="gzip")
     loader    = deep_get(cfg, "boot", "loader", default="qemu")

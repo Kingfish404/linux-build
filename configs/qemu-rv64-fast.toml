@@ -1,14 +1,14 @@
-# system config: RISC-V 32-bit, QEMU
+# system config: RISC-V 64-bit, QEMU
 #
 # Both minimal and buildroot variants are built from this single config.
 #
-# Build:  make configure SYSTEM=configs/qemu-rv32.toml
+# Build:  make configure SYSTEM=configs/qemu-rv64.toml
 #         make build
 # Test:   make test                              # boots minimal
 #         make test_qemu_kernel_buildroot        # boots buildroot
 
 [target]
-arch = "riscv32"
+arch = "riscv64"
 
 [kernel]
 version = "6.18.29"

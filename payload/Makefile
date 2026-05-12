@@ -7,20 +7,17 @@ CROSS_COMPILE ?= riscv64-linux-gnu-
 CC := $(CROSS_COMPILE)gcc
 
 ifeq ($(BITS),64)
-  CFLAGS := -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib
+  CFLAGS := -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -fno-builtin
 else
-  CFLAGS := -march=rv32ima_zicsr_zifencei_zicntr -mabi=ilp32 -nostdlib
+  CFLAGS := -march=rv32ima_zicsr_zifencei_zicntr -mabi=ilp32 -nostdlib -ffreestanding -fno-builtin
 endif
 
 LDFLAGS := -Wl,-e,_start -static
 
-init_loop:
-	$(CC) $(CFLAGS) $(LDFLAGS) -o init init_loop.c $(LDFLAG)
-
-install: init
-	cp init ../initramfs
+tiny_shell:
+	$(CC) $(CFLAGS) $(LDFLAGS) -o init_shell tiny_shell.c
 
 clean:
-	rm -f init
+	rm -f init init_shell
 
-.PHONY: init_loop install clean
+.PHONY: tiny_shell clean

@@ -11,10 +11,69 @@
 arch = "riscv64"
 
 [kernel]
-version = "6.18.29"
+version = "6.18.39"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
+# Bring-up consoles for common RISC-V ASIC and FPGA UART IP.
+SERIAL_8250 = true
+SERIAL_8250_CONSOLE = true
+SERIAL_8250_DW = true
+SERIAL_OF_PLATFORM = true
+SERIAL_SIFIVE = true
+SERIAL_SIFIVE_CONSOLE = true
+LITEX_SOC_CONTROLLER = true
+SERIAL_LITEUART = true
+SERIAL_LITEUART_CONSOLE = true
+SERIAL_LITEUART_MAX_PORTS = 1
+SERIAL_UARTLITE = true
+SERIAL_UARTLITE_CONSOLE = true
+SERIAL_UARTLITE_NR_UARTS = 1
+SERIAL_XILINX_PS_UART = true
+SERIAL_XILINX_PS_UART_CONSOLE = true
+SERIAL_ALTERA_UART = true
+SERIAL_ALTERA_UART_CONSOLE = true
+SERIAL_ALTERA_UART_MAXPORTS = 1
+SERIAL_ALTERA_JTAGUART = true
+SERIAL_ALTERA_JTAGUART_CONSOLE = true
+SERIAL_ALTERA_JTAGUART_CONSOLE_BYPASS = true
+
+# DT-driven Ethernet for common FPGA and ASIC MAC IP.
+NETDEVICES = true
+ETHERNET = true
+IP_PNP = true
+IP_PNP_DHCP = true
+PHYLIB = true
+FIXED_PHY = true
+NET_VENDOR_LITEX = true
+LITEX_LITEETH = true
+NET_VENDOR_XILINX = true
+XILINX_EMACLITE = true
+NET_VENDOR_CADENCE = true
+MACB = true
+NET_VENDOR_STMICRO = true
+STMMAC_ETH = true
+STMMAC_PLATFORM = true
+DWMAC_GENERIC = true
+VIRTIO_NET = true
+VIRTIO_MMIO = true
+
+# Persistent storage and application root filesystems.
+MMC = true
+MMC_BLOCK = true
+MMC_LITEX = true
+EXT4_FS = true
+VFAT_FS = true
+SQUASHFS = true
+OVERLAY_FS = true
+
+# Firmware-initialized linear framebuffer and text console.
+VT = true
+VT_CONSOLE = true
+DRM_SIMPLEDRM = true
+DRM_FBDEV_EMULATION = true
+FRAMEBUFFER_CONSOLE = true
+
 # Fast-boot profile: disable expensive debug, tracing and hardening checks.
 DEBUG_KERNEL = false
 SLUB_DEBUG = false
@@ -46,9 +105,9 @@ NAMESPACES = false
 SECCOMP = false
 SECURITY = false
 
-# Drop heavyweight peripheral / stack subsystems not needed for tiny_shell.
-NET = false
-INET = false
+# Keep networking and simple display for FPGA/ASIC bring-up.
+NET = true
+INET = true
 SOUND = false
 SND = false
 INPUT = false
@@ -56,8 +115,8 @@ HID = false
 USB_SUPPORT = false
 PCI = false
 VGA_CONSOLE = false
-DRM = false
-FB = false
+DRM = true
+FB = true
 SCSI = false
 SCSI_LOWLEVEL = false
 SCSI_VIRTIO = false
@@ -90,13 +149,13 @@ RISCV_ISA_ZBC = false
 RISCV_ISA_ZICBOM = false
 RISCV_ISA_ZICBOZ = false
 
-# Push toward Xiangshan-like minimal boot path (initramfs + /init only).
+# Push toward a minimal initramfs boot path while retaining bring-up I/O.
 SMP = false
 EFI = false
 EFI_STUB = false
 RCU_TRACE = false
 TASKS_TRACE_RCU = false
-VT = false
+VT = true
 
 # Keep only initramfs boot essentials.
 BLK_DEV_INITRD = true
@@ -111,10 +170,10 @@ ATA_SFF = false
 BLK_DEV_SD = false
 VIRTIO_BLK = false
 BLK_DEV_LOOP = false
-NET = false
-INET = false
+NET = true
+INET = true
 IPV6 = false
-VIRTIO_NET = false
+VIRTIO_NET = true
 NFS_FS = false
 NFS_V4 = false
 9P_FS = false
@@ -142,7 +201,7 @@ BLK_DEV_BSG = false
 MQ_IOSCHED_DEADLINE = false
 MQ_IOSCHED_KYBER = false
 IOSCHED_BFQ = false
-MMC = false
+MMC = true
 
 # Remove heavyweight filesystems/storage stacks and their boot-time benchmarks.
 BTRFS_FS = false

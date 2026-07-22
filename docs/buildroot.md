@@ -175,6 +175,12 @@ make BITS=32 package            # -> dist/linux-riscv-rv32-<preset>-v<ver>.tar.g
 # Package Buildroot variant
 make BITS=32 package_buildroot  # -> dist/linux-riscv-rv32-<preset>-buildroot-v<ver>.tar.gz
 
-# Package both variants for the current BITS
+# Clean dist/, then build and package both variants for every configs/*.toml preset
 make package_all
 ```
+
+`package_all` stops on the first failed configuration so `dist/` cannot silently
+mix stale packages with a partially rebuilt release matrix. After it succeeds,
+run `make test_all` to timeout-boot every tarball and verify that tiny shell or
+Buildroot reaches userspace. `make github_release` then uploads the complete set
+of newly generated tarballs.

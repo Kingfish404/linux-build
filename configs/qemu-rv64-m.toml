@@ -11,10 +11,72 @@
 arch = "riscv64"
 
 [kernel]
-version = "6.18.29"
+version = "6.18.39"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
+# Bring-up consoles for common RISC-V ASIC and FPGA UART IP.
+SERIAL_8250 = true
+SERIAL_8250_CONSOLE = true
+SERIAL_8250_DW = true
+SERIAL_OF_PLATFORM = true
+SERIAL_SIFIVE = true
+SERIAL_SIFIVE_CONSOLE = true
+LITEX_SOC_CONTROLLER = true
+SERIAL_LITEUART = true
+SERIAL_LITEUART_CONSOLE = true
+SERIAL_LITEUART_MAX_PORTS = 1
+SERIAL_UARTLITE = true
+SERIAL_UARTLITE_CONSOLE = true
+SERIAL_UARTLITE_NR_UARTS = 1
+SERIAL_XILINX_PS_UART = true
+SERIAL_XILINX_PS_UART_CONSOLE = true
+SERIAL_ALTERA_UART = true
+SERIAL_ALTERA_UART_CONSOLE = true
+SERIAL_ALTERA_UART_MAXPORTS = 1
+SERIAL_ALTERA_JTAGUART = true
+SERIAL_ALTERA_JTAGUART_CONSOLE = true
+SERIAL_ALTERA_JTAGUART_CONSOLE_BYPASS = true
+
+# DT-driven Ethernet for common FPGA and ASIC MAC IP.
+NET = true
+INET = true
+IP_PNP = true
+IP_PNP_DHCP = true
+NETDEVICES = true
+ETHERNET = true
+PHYLIB = true
+FIXED_PHY = true
+NET_VENDOR_LITEX = true
+LITEX_LITEETH = true
+NET_VENDOR_XILINX = true
+XILINX_EMACLITE = true
+NET_VENDOR_CADENCE = true
+MACB = true
+NET_VENDOR_STMICRO = true
+STMMAC_ETH = true
+STMMAC_PLATFORM = true
+DWMAC_GENERIC = true
+VIRTIO_NET = true
+VIRTIO_MMIO = true
+
+# Persistent storage and application root filesystems.
+MMC = true
+MMC_BLOCK = true
+MMC_LITEX = true
+EXT4_FS = true
+VFAT_FS = true
+SQUASHFS = true
+OVERLAY_FS = true
+
+# Firmware-initialized linear framebuffer and text console.
+VT = true
+VT_CONSOLE = true
+DRM = true
+DRM_SIMPLEDRM = true
+DRM_FBDEV_EMULATION = true
+FB = true
+FRAMEBUFFER_CONSOLE = true
 
 [rootfs]
 type = "initramfs"

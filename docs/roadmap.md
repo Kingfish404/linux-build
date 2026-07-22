@@ -22,7 +22,7 @@ kernel boot experiment and an early distribution.
 
 | Component           | Current State                                                   | Maturity |
 | ------------------- | --------------------------------------------------------------- | -------- |
-| **Kernel**          | Linux 6.18.29, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
+| **Kernel**          | Linux 6.18.39, RV32/RV64 dual-arch, minimal ISA config          | ★★★★☆    |
 | **Firmware / Boot** | OpenSBI (fw_payload / fw_dynamic), QEMU/Spike only              | ★★★☆☆    |
 | **Root filesystem** | initramfs-only: ① `tiny_shell` debug shell ② Buildroot rootfs | ★★☆☆☆    |
 | **Userspace**       | Buildroot provides busybox + openssh/htop/strace                | ★★☆☆☆    |

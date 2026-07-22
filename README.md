@@ -45,6 +45,58 @@ tinysh: initramfs shell ready. Type 'help'.
 tinysh#
 ```
 
+The QEMU tiny-shell test attaches a virtio network device and uses kernel DHCP
+autoconfiguration. Network status and connectivity can be checked without a
+userspace DHCP client:
+
+```text
+tinysh# ifconfig
+eth0: UP RUNNING
+        inet 10.0.2.15
+        netmask 255.255.255.0
+tinysh# ping 10.0.2.2
+3/3 replies
+```
+
+The freestanding shell provides these built-in commands:
+
+```text
+filesystem: pwd cd ls cat cp touch mkdir rm rmdir mount sync
+system:     uname uptime free sleep run clear reboot poweroff exit
+network:    ifconfig ping nc fetch
+```
+
+`ifconfig [IFACE]` defaults to `eth0`. `ping` accepts a numeric IPv4 address and
+sends three ICMP echo requests. `nc IPv4 PORT` opens a TCP client connection,
+while `nc -l PORT` accepts one TCP connection; both modes relay data between the
+console and socket until EOF. `fetch IPv4 PORT /REMOTE_PATH LOCAL_PATH` downloads
+an HTTP/1.0 response, checks `Content-Length` when supplied, and creates an
+executable file. `run PATH [ARG...]` starts it as a child, reports its exit status,
+and returns to the shell. Absolute and relative paths containing `/` can also be
+executed directly. For example:
+
+```text
+tinysh# fetch 10.0.2.2 8000 /probe /tmp/probe
+saved 2040 bytes to /tmp/probe
+tinysh# run /tmp/probe
+downloaded ELF executed
+exit 37
+tinysh# cd /tmp
+tinysh# ./probe
+downloaded ELF executed
+exit 37
+```
+
+DNS lookup and TLS are intentionally not included. Use `fetch` only on a trusted
+network: it provides transport, not authenticity. Downloaded ELF files must match
+the active RV32/RV64 ISA and ABI; statically linked binaries are the portable
+default unless their interpreter and shared libraries are also present.
+
+The shell remains a single static `/init` binary, but its source is split by
+responsibility under [payload/](payload/): the REPL entry point, command table,
+network commands, HTTP transfer and execution, syscall ABI, and common utilities
+are compiled as separate objects.
+
 To boot the Buildroot initramfs after a preset with `[buildroot]` has been built:
 
 ```bash
@@ -136,7 +188,8 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 | ------------------- | --------------------------------------------------------------------------------------------------- |
 | `package`           | Bundle rv$(BITS) tiny shell artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-v*.tar.gz`          |
 | `package_buildroot` | Bundle rv$(BITS) Buildroot artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-buildroot-v*.tar.gz` |
-| `package_all`       | Build tiny shell + Buildroot tarballs for the current `BITS`                                        |
+| `package_all`       | Clean `dist/`, then build and package tiny shell + Buildroot for every `configs/*.toml` preset       |
+| `test_all`          | Timeout-boot every package in `dist/` and verify its userspace reaches the serial console            |
 | `github_release`    | Create a GitHub Release and upload tarballs from `dist/` (requires `gh`)                            |
 | `clean_packages`    | Remove `dist/`                                                                                      |
 | `build_all`         | Build Linux + tiny shell initramfs + OpenSBI for RV32 and RV64                                      |
@@ -154,12 +207,26 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 | `HOSTCC`        | `cc`                    | Host compiler for Linux `usr/gen_init_cpio.c`                   |
 | `QEMU_MEM`      | `512`                   | QEMU guest RAM in MiB, overridden by preset `[boot].memory`     |
 | `QEMU_TIMEOUT`  | unset                   | Auto-exit QEMU after this many seconds using `timeout(1)`       |
+| `PACKAGE_TEST_TIMEOUT` | `30`             | Per-package QEMU boot timeout used by `test_all`, in seconds    |
 | `SYSTEM`        | unset                   | TOML preset path for `make configure`                           |
 | `SPIKE_MEM`     | `512`                   | Spike guest RAM in MiB                                          |
 | `SSH_PORT`      | `2222`                  | Host port forwarded to guest port 22 for Buildroot QEMU targets |
 | `SHARE_DIR`     | unset                   | Host directory shared with Buildroot guests via 9P              |
 | `SHARE_RO`      | unset                   | Set to `1` to mount the 9P share read-only                      |
 | `TAG`           | `rv-v$(KERNEL_VERSION)` | Git tag for `github_release`                                    |
+
+Recommended release flow:
+
+```bash
+make package_all
+make test_all
+make github_release
+```
+
+`test_all` uses each archive's packaged `fw_dynamic.bin`, `Image`, and
+`initramfs.cpio.gz`. Successful and failed serial logs are written under
+`dist/test-logs/`; a timeout, kernel panic, missing package file, or absent
+userspace-ready marker fails the target.
 
 ## Buildroot
 

@@ -106,8 +106,15 @@ update_buildroot_full: ## Rebuild Buildroot, re-embed initramfs, and rebuild Ope
 # Embed Buildroot initramfs into kernel Image
 # ---------------------------------------------------------------------------
 
+prepare_kernel_buildroot: linux ## Apply Buildroot kernel config and rebuild Linux
+	$(call require,$(KERNEL_CFG_BUILDROOT),Run 'make configure SYSTEM=configs/<preset>.toml' first.)
+	$(call apply_kconfig_fragment,$(KERNEL_CFG_BUILDROOT))
+	$(KERNEL_MAKE) olddefconfig
+	$(KERNEL_MAKE)
+
 install_initramfs_buildroot: ## Embed Buildroot initramfs into kernel
 	$(call require,$(BUILDROOT_CPIO),Run make_initramfs_buildroot first.)
+	$(MAKE) prepare_kernel_buildroot
 	$(KCONFIG) --set-str CONFIG_INITRAMFS_SOURCE $(BUILDROOT_CPIO)
 	$(KERNEL_MAKE) olddefconfig
 	$(KERNEL_MAKE)
@@ -127,6 +134,7 @@ test_qemu_buildroot: ## Boot Buildroot fw_payload in QEMU with networking
 test_qemu_kernel_buildroot: ## Boot kernel plus Buildroot initramfs in QEMU
 	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
 	$(call require,$(BUILDROOT_CPIO),Run make_initramfs_buildroot first.)
+	$(MAKE) prepare_kernel_buildroot
 	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_NET) $(QEMU_SHARE) $(QEMU_KERNEL_BUILDROOT_ARGS)
 
 # ---------------------------------------------------------------------------
@@ -173,7 +181,7 @@ clean_buildroot: ## Remove Buildroot clone directories
 
 .PHONY: buildroot \
         make_initramfs_buildroot make_initramfs_buildroot_clean \
-        install_initramfs_buildroot \
+	prepare_kernel_buildroot install_initramfs_buildroot \
         update_buildroot update_buildroot_full \
         test_qemu_buildroot test_qemu_kernel_buildroot \
         package_buildroot clean_buildroot

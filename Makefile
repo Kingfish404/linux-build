@@ -9,7 +9,7 @@ PWD_DIR=$(abspath .)
 # ---------------------------------------------------------------------------
 -include $(PWD_DIR)/.config.mk
 
-KERNEL_VERSION ?= 6.18.29## Linux kernel version to download and build
+KERNEL_VERSION ?= 6.18.39## Linux kernel version to download and build
 
 # Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32## Target bitness (32 or 64; usually set by configure)
@@ -69,16 +69,17 @@ QEMU_MEM     ?= 512## QEMU guest RAM in MiB
 # Optional: set QEMU_TIMEOUT=N (seconds) to auto-exit after N seconds.
 # Default is empty (run until Ctrl-C or guest halts).
 QEMU_TIMEOUT ?=## Auto-exit QEMU after N seconds (empty = run until Ctrl-C)
+PACKAGE_TEST_TIMEOUT ?= 30## Per-package boot timeout used by test_all (seconds)
 SPIKE_MEM    ?= 512## Spike guest RAM in MiB
 
 # Prefix command with timeout if QEMU_TIMEOUT is set
 IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
 
-# Derive kernel major version for download URL (e.g. 6.18.29 -> v6.x, 7.0.1 -> v7.x)
+# Derive kernel major version for download URL (e.g. 6.18.39 -> v6.x, 7.0.1 -> v7.x)
 KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
-# Include config preset name when available (e.g. linux-riscv-qemu-rv32-v6.18.29)
+# Include config preset name when available (e.g. linux-riscv-qemu-rv32-v6.18.39)
 ifneq ($(SYSTEM_PRESET),)
   RELEASE_NAME    := linux-riscv-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
 else
@@ -87,6 +88,9 @@ endif
 RELEASE_TARBALL := $(PWD_DIR)/dist/$(RELEASE_NAME).tar.gz
 # Staging directory under dist/ (cleaned after tarball is created)
 RELEASE_STAGING := $(PWD_DIR)/dist/$(RELEASE_NAME)
+
+# Complete release matrix, traversed deterministically by package_all.
+SYSTEM_CONFIGS := $(sort $(wildcard $(PWD_DIR)/configs/*.toml))
 
 # Linux kernel source directory (versioned so multiple kernels can coexist)
 LINUX_DIR := $(PWD_DIR)/linux/linux-$(KERNEL_VERSION)
@@ -128,7 +132,7 @@ QEMU_KERNEL_ARGS = \
 	-bios $(FW_DYNAMIC_BIN) \
 	-kernel $(KERNEL_IMAGE) \
 	-initrd $(INITRAMFS_CPIO) \
-	-append "root=/dev/ram rdinit=/init console=ttyS0 earlycon=sbi"
+	-append "root=/dev/ram rdinit=/init console=ttyS0 earlycon=sbi ip=dhcp"
 
 # ---------------------------------------------------------------------------
 # Buildroot targets and variables (uses variables defined above)
@@ -393,6 +397,7 @@ build_opensbi_with_kernel: opensbi ## Build OpenSBI with kernel payload
 #                   (useful to iterate without rebuilding firmware)
 
 QEMU_BASE    := qemu-system-riscv$(BITS) -M virt -m $(QEMU_MEM)M -nographic
+QEMU_TINY_NET := -netdev user,id=net0 -device virtio-net-device,netdev=net0
 
 test_qemu: ## Boot fw_payload.bin in QEMU
 	$(call require,$(FW_PAYLOAD_BIN),Run build_opensbi_with_kernel first.)
@@ -401,7 +406,7 @@ test_qemu: ## Boot fw_payload.bin in QEMU
 test_qemu_kernel: ## Boot kernel, initramfs, and fw_dynamic in QEMU
 	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
 	$(call require,$(INITRAMFS_CPIO),Run make_initramfs_tiny_shell first.)
-	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_KERNEL_ARGS)
+	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_TINY_NET) $(QEMU_KERNEL_ARGS)
 
 # ---------------------------------------------------------------------------
 # Spike tests
@@ -431,7 +436,7 @@ build_all: linux opensbi ## Build RV32 and RV64 tiny shell variants
 # Usage:
 #   make BITS=32 package   -> linux-riscv-rv32-v<ver>.tar.gz
 #   make BITS=64 package   -> linux-riscv-rv64-v<ver>.tar.gz
-#   make package_all       -> tiny shell + buildroot tarballs for current BITS
+#   make package_all       -> build + package every preset under configs/
 # ---------------------------------------------------------------------------
 
 package: linux opensbi ## Package tiny shell artifacts
@@ -457,12 +462,33 @@ package: linux opensbi ## Package tiny shell artifacts
 	tar -czf $(RELEASE_TARBALL) -C $(PWD_DIR)/dist $(RELEASE_NAME)
 	@echo "Package ready: $(RELEASE_TARBALL)"
 
-package_all: ## Package tiny shell and Buildroot artifacts
-	$(MAKE) package
-	-$(MAKE) package_buildroot
+package_all: ## Build and package every preset under configs/
+	@test -n "$(SYSTEM_CONFIGS)" || (echo "ERROR: No configs/*.toml presets found." && false)
+	rm -rf $(PWD_DIR)/dist
+	mkdir -p $(PWD_DIR)/dist
+	@set -e; \
+		total=$(words $(SYSTEM_CONFIGS)); index=0; \
+		for config in $(SYSTEM_CONFIGS); do \
+			index=$$((index + 1)); \
+			echo ""; \
+			echo "=== [$$index/$$total] Building and packaging $${config#$(PWD_DIR)/} ==="; \
+			$(MAKE) configure SYSTEM="$$config"; \
+			$(MAKE) build; \
+			$(MAKE) package; \
+			$(MAKE) package_buildroot; \
+		done
+	@expected=$$((2 * $(words $(SYSTEM_CONFIGS)))); \
+		actual=$$(find $(PWD_DIR)/dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l); \
+		if [ "$$actual" -ne "$$expected" ]; then \
+			echo "ERROR: Expected $$expected release tarballs, found $$actual."; \
+			false; \
+		fi
 	@echo ""
-	@echo "Packages created under dist/ (tiny_shell + buildroot):"
-	@ls -1 $(PWD_DIR)/dist/*.tar.gz 2>/dev/null | sed 's/^/  /'
+	@echo "All preset packages created under dist/:"
+	@find $(PWD_DIR)/dist -maxdepth 1 -type f -name '*.tar.gz' -print | sort | sed 's/^/  /'
+
+test_all: ## Timeout-boot every release package and verify userspace starts
+	python3 scripts/test-packages.py --dist $(PWD_DIR)/dist --timeout $(PACKAGE_TEST_TIMEOUT)
 
 # ---------------------------------------------------------------------------
 # GitHub release
@@ -470,7 +496,7 @@ package_all: ## Package tiny shell and Buildroot artifacts
 #
 # Usage:
 #   make github_release					# tag = <preset>-v<KERNEL_VERSION>
-#   make github_release TAG=v6.18.29  	# custom tag
+#   make github_release TAG=v6.18.39  	# custom tag
 #
 # All tarballs must exist (run 'make package_all' first).
 # ---------------------------------------------------------------------------
@@ -518,5 +544,5 @@ clean_spike: ## Remove Spike source and build directories
         build_opensbi build_opensbi_with_kernel build_spike \
 		test_qemu test_qemu_kernel test_spike \
         build_all clean clean_spike \
-        package package_all github_release clean_packages
+		package package_all test_all github_release clean_packages
 

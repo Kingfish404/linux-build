@@ -10,11 +10,11 @@ Scripts and Makefiles for building a small RISC-V Linux system, including:
 
 Both 32-bit (RV32) and 64-bit (RV64) targets are supported and can coexist in the same tree. Each TOML preset can generate a tiny shell kernel/initramfs path and, when `[buildroot]` is present, a Buildroot path.
 
-| Host    | 32-bit target                        | 64-bit target                         |
-| ------- | ------------------------------------ | ------------------------------------- |
-| x86-64  | cross-compile (`riscv64-linux-gnu-`) | cross-compile (`riscv64-linux-gnu-`)  |
-| aarch64 | cross-compile (`riscv64-linux-gnu-`) | cross-compile (`riscv64-linux-gnu-`)  |
-| riscv64 | cross-compile (`riscv64-linux-gnu-`) | native build by default               |
+| Host    | 32-bit target                        | 64-bit target                        |
+| ------- | ------------------------------------ | ------------------------------------ |
+| x86-64  | cross-compile (`riscv64-linux-gnu-`) | cross-compile (`riscv64-linux-gnu-`) |
+| aarch64 | cross-compile (`riscv64-linux-gnu-`) | cross-compile (`riscv64-linux-gnu-`) |
+| riscv64 | cross-compile (`riscv64-linux-gnu-`) | native build by default              |
 
 ## Prerequisites
 
@@ -107,15 +107,18 @@ make test_qemu_kernel_buildroot
 
 Available presets live in [configs/](configs/):
 
-| Preset           | Arch | Memory | Buildroot packages                       | Notes                                     |
-| ---------------- | ---- | ------ | ---------------------------------------- | ----------------------------------------- |
-| `qemu-rv32-fast` | RV32 | 64 MB  | openssh                                  | Aggressively trimmed tiny shell boot path |
-| `qemu-rv32`      | RV32 | 512 MB | openssh, strace, htop, lsof, file, tree  | Default RV32 preset                       |
-| `qemu-rv64`      | RV64 | 512 MB | openssh, strace, htop, lsof, file, tree  | Default RV64 preset                       |
-| `qemu-rv32-s`    | RV32 | 256 MB | openssh                                  | Smaller RV32 preset                       |
-| `qemu-rv64-s`    | RV64 | 256 MB | openssh                                  | Smaller RV64 preset                       |
-| `qemu-rv32-m`    | RV32 | 256 MB | openssh                                  | Keeps selected bit-manip extensions       |
-| `qemu-rv64-m`    | RV64 | 256 MB | openssh                                  | Keeps selected bit-manip extensions       |
+| Preset             | Arch | Memory | Buildroot packages                      | Notes                                     |
+| ------------------ | ---- | ------ | --------------------------------------- | ----------------------------------------- |
+| `qemu-rv32-fast`   | RV32 | 64 MB  | openssh                                 | Aggressively trimmed tiny shell boot path |
+| `qemu-rv64-fast`   | RV64 | 64 MB  | openssh                                 | Aggressively trimmed tiny shell boot path |
+| `qemu-rv32`        | RV32 | 512 MB | openssh, strace, htop, lsof, file, tree | Default RV32 preset                       |
+| `qemu-rv64`        | RV64 | 512 MB | openssh, strace, htop, lsof, file, tree | Default RV64 preset                       |
+| `qemu-rv32-s`      | RV32 | 256 MB | openssh                                 | Smaller RV32 preset                       |
+| `qemu-rv64-s`      | RV64 | 256 MB | openssh                                 | Smaller RV64 preset                       |
+| `qemu-rv32-m`      | RV32 | 256 MB | openssh                                 | Keeps selected bit-manip extensions       |
+| `qemu-rv64-m`      | RV64 | 256 MB | openssh                                 | Keeps selected bit-manip extensions       |
+| `qemu-rv32-latest` | RV32 | 512 MB | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
+| `qemu-rv64-latest` | RV64 | 512 MB | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
 
 ## Declarative Build System
 
@@ -188,8 +191,8 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 | ------------------- | --------------------------------------------------------------------------------------------------- |
 | `package`           | Bundle rv$(BITS) tiny shell artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-v*.tar.gz`          |
 | `package_buildroot` | Bundle rv$(BITS) Buildroot artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-buildroot-v*.tar.gz` |
-| `package_all`       | Clean `dist/`, then build and package tiny shell + Buildroot for every `configs/*.toml` preset       |
-| `test_all`          | Timeout-boot every package in `dist/` and verify its userspace reaches the serial console            |
+| `package_all`       | Clean `dist/`, then build and package tiny shell + Buildroot for every `configs/*.toml` preset      |
+| `test_all`          | Timeout-boot every package in `dist/` and verify its userspace reaches the serial console           |
 | `github_release`    | Create a GitHub Release and upload tarballs from `dist/` (requires `gh`)                            |
 | `clean_packages`    | Remove `dist/`                                                                                      |
 | `build_all`         | Build Linux + tiny shell initramfs + OpenSBI for RV32 and RV64                                      |
@@ -200,20 +203,20 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 
 ## Variables
 
-| Variable        | Default                 | Description                                                     |
-| --------------- | ----------------------- | --------------------------------------------------------------- |
-| `BITS`          | `32`                    | Target bitness, normally set by `.config.mk`                    |
-| `CROSS_COMPILE` | auto                    | Cross-compiler prefix, e.g. `riscv64-linux-gnu-`                |
-| `HOSTCC`        | `cc`                    | Host compiler for Linux `usr/gen_init_cpio.c`                   |
-| `QEMU_MEM`      | `512`                   | QEMU guest RAM in MiB, overridden by preset `[boot].memory`     |
-| `QEMU_TIMEOUT`  | unset                   | Auto-exit QEMU after this many seconds using `timeout(1)`       |
-| `PACKAGE_TEST_TIMEOUT` | `30`             | Per-package QEMU boot timeout used by `test_all`, in seconds    |
-| `SYSTEM`        | unset                   | TOML preset path for `make configure`                           |
-| `SPIKE_MEM`     | `512`                   | Spike guest RAM in MiB                                          |
-| `SSH_PORT`      | `2222`                  | Host port forwarded to guest port 22 for Buildroot QEMU targets |
-| `SHARE_DIR`     | unset                   | Host directory shared with Buildroot guests via 9P              |
-| `SHARE_RO`      | unset                   | Set to `1` to mount the 9P share read-only                      |
-| `TAG`           | `rv-v$(KERNEL_VERSION)` | Git tag for `github_release`                                    |
+| Variable               | Default                   | Description                                                     |
+| ---------------------- | ------------------------- | --------------------------------------------------------------- |
+| `BITS`                 | `32`                      | Target bitness, normally set by `.config.mk`                    |
+| `CROSS_COMPILE`        | auto                      | Cross-compiler prefix, e.g. `riscv64-linux-gnu-`                |
+| `HOSTCC`               | `cc`                      | Host compiler for Linux `usr/gen_init_cpio.c`                   |
+| `QEMU_MEM`             | `512`                     | QEMU guest RAM in MiB, overridden by preset `[boot].memory`     |
+| `QEMU_TIMEOUT`         | unset                     | Auto-exit QEMU after this many seconds using `timeout(1)`       |
+| `PACKAGE_TEST_TIMEOUT` | `30`                      | Per-package QEMU boot timeout used by `test_all`, in seconds    |
+| `SYSTEM`               | unset                     | TOML preset path for `make configure`                           |
+| `SPIKE_MEM`            | `512`                     | Spike guest RAM in MiB                                          |
+| `SSH_PORT`             | `2222`                    | Host port forwarded to guest port 22 for Buildroot QEMU targets |
+| `SHARE_DIR`            | unset                     | Host directory shared with Buildroot guests via 9P              |
+| `SHARE_RO`             | unset                     | Set to `1` to mount the 9P share read-only                      |
+| `TAG`                  | `rv-v<qemu-rv64 version>` | Git tag for `github_release`; set explicitly to override it     |
 
 Recommended release flow:
 

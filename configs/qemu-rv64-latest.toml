@@ -1,20 +1,23 @@
-# system config: RISC-V 32-bit, QEMU
+# system config: RISC-V 64-bit, QEMU
 #
 # Both minimal and buildroot variants are built from this single config.
 #
-# Build:  make configure SYSTEM=configs/qemu-rv32.toml
+# Build:  make configure SYSTEM=configs/qemu-rv64-latest.toml
 #         make build
 # Test:   make test                              # boots minimal
 #         make test_qemu_kernel_buildroot        # boots buildroot
 
 [target]
-arch = "riscv32"
+arch = "riscv64"
 
 [kernel]
-version = "6.18.49"
+version = "7.2.3"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
+# Print the resolved virtual memory layout during boot for Sv39 validation.
+DEBUG_VM = true
+
 # Bring-up consoles for common RISC-V ASIC and FPGA UART IP.
 SERIAL_8250 = true
 SERIAL_8250_CONSOLE = true

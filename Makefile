@@ -9,7 +9,7 @@ PWD_DIR=$(abspath .)
 # ---------------------------------------------------------------------------
 -include $(PWD_DIR)/.config.mk
 
-KERNEL_VERSION ?= 6.18.39## Linux kernel version to download and build
+KERNEL_VERSION ?= 6.18.49## Linux kernel version to download and build
 
 # Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32## Target bitness (32 or 64; usually set by configure)
@@ -51,6 +51,7 @@ RISCV_ABI_BUILDROOT ?= $(RISCV_ABI)## ABI used when packaging Buildroot artifact
 # Per-bitness output directories so 32 and 64 builds coexist
 OBJDIR         := $(PWD_DIR)/build$(BITS)
 OPENSBI_OBJDIR := $(PWD_DIR)/opensbi-build$(BITS)
+KERNEL_VERSION_STAMP := $(OBJDIR)/.kernel-version
 
 # Per-bitness tiny shell initramfs outputs
 INITRAMFS_DIR  := $(PWD_DIR)/initramfs$(BITS)
@@ -75,11 +76,11 @@ SPIKE_MEM    ?= 512## Spike guest RAM in MiB
 # Prefix command with timeout if QEMU_TIMEOUT is set
 IF_TIMEOUT = $(if $(QEMU_TIMEOUT),timeout $(QEMU_TIMEOUT),)
 
-# Derive kernel major version for download URL (e.g. 6.18.39 -> v6.x, 7.0.1 -> v7.x)
+# Derive kernel major version for download URL (e.g. 6.18.49 -> v6.x, 7.2.3 -> v7.x)
 KERNEL_MAJOR := v$(firstword $(subst ., ,$(KERNEL_VERSION))).x
 
 # Release package name and output tarball path
-# Include config preset name when available (e.g. linux-riscv-qemu-rv32-v6.18.39)
+# Include config preset name when available (e.g. linux-riscv-qemu-rv32-v6.18.49)
 ifneq ($(SYSTEM_PRESET),)
   RELEASE_NAME    := linux-riscv-$(SYSTEM_PRESET)-v$(KERNEL_VERSION)
 else
@@ -317,7 +318,13 @@ build_spike: spike_src ## Build and install local Spike simulator
 # ---------------------------------------------------------------------------
 
 build_linux: linux ## Configure and build Linux kernel
+	@if [ -d "$(OBJDIR)" ] && { [ ! -f "$(KERNEL_VERSION_STAMP)" ] || \
+	   [ "$$(cat "$(KERNEL_VERSION_STAMP)" 2>/dev/null)" != "$(KERNEL_VERSION)" ]; }; then \
+		echo "Kernel version changed; removing stale $(OBJDIR) output"; \
+		rm -rf "$(OBJDIR)"; \
+	fi
 	mkdir -p $(OBJDIR)
+	@printf '%s\n' '$(KERNEL_VERSION)' > $(KERNEL_VERSION_STAMP)
 ifeq ($(BITS),32)
 	# riscv defconfig is 64-bit; layer the upstream 32-bit overlay to flip
 	# ARCH_RV32I/NONPORTABLE cleanly (scripts/config can't drive choice blocks).
@@ -495,24 +502,47 @@ test_all: ## Timeout-boot every release package and verify userspace starts
 # Requires the 'gh' CLI: https://cli.github.com
 #
 # Usage:
-#   make github_release					# tag = <preset>-v<KERNEL_VERSION>
-#   make github_release TAG=v6.18.39  	# custom tag
+#   make github_release					# tag from qemu-rv64.toml; title from dist versions
+#   make github_release TAG=rv-v6.18.49  # custom tag
 #
 # All tarballs must exist (run 'make package_all' first).
 # ---------------------------------------------------------------------------
 
-TAG ?= rv-v$(KERNEL_VERSION)## GitHub release tag
+TAG ?=## GitHub release tag (empty = derive from configs/qemu-rv64.toml)
 
 github_release: ## Create GitHub release and upload tarballs
 	$(call require_cmd,gh,Install from https://cli.github.com)
-	@echo "--- Creating GitHub Release $(TAG) ---"
-	$(eval RELEASE_FILES := $(wildcard $(PWD_DIR)/dist/*.tar.gz))
-	@test -n "$(RELEASE_FILES)" || (echo "ERROR: No tarballs found in dist/. Run 'make package_all' first." && false)
-	gh release create $(TAG) \
-		$(RELEASE_FILES) \
-		--title "Linux $(KERNEL_VERSION) for RISC-V" \
-		--notes $$'Pre-built Linux $(KERNEL_VERSION) kernels for RISC-V.\n\nTiny shell variants: rv32imac / rv64imac (FPU disabled).\nBuildroot variants: rv32imafd / rv64imafd (FPU enabled for hard-float userspace).\n\nSee README.md inside each tarball for boot instructions (QEMU / Spike).'
-	@echo "Release $(TAG) published."
+	@set -euo pipefail; \
+		release_files=("$(PWD_DIR)"/dist/*.tar.gz); \
+		if [ ! -e "$${release_files[0]}" ]; then \
+			echo "ERROR: No tarballs found in dist/. Run 'make package_all' first."; \
+			exit 1; \
+		fi; \
+		mapfile -t versions < <(printf '%s\n' "$${release_files[@]}" | \
+			sed -n 's/.*-v\([^/]*\)\.tar\.gz$$/\1/p' | sort -Vu); \
+		if [ "$${#versions[@]}" -eq 0 ]; then \
+			echo "ERROR: Cannot determine kernel versions from dist tarball names."; \
+			exit 1; \
+		fi; \
+		version_label=$$(printf '%s / ' "$${versions[@]}"); \
+		version_label=$${version_label% / }; \
+		release_title="Linux $$version_label for RISC-V"; \
+		release_tag="$(TAG)"; \
+		if [ -z "$$release_tag" ]; then \
+			tag_version=$$(python3 -c 'import tomllib; print(tomllib.load(open("configs/qemu-rv64.toml", "rb"))["kernel"]["version"])'); \
+			if ! printf '%s\n' "$${versions[@]}" | grep -Fqx "$$tag_version"; then \
+				echo "ERROR: qemu-rv64.toml version $$tag_version is absent from dist tarballs."; \
+				exit 1; \
+			fi; \
+			release_tag="rv-v$$tag_version"; \
+		fi; \
+		echo "--- Creating GitHub Release $$release_tag ---"; \
+		echo "Title: $$release_title"; \
+		gh release create "$$release_tag" \
+			"$${release_files[@]}" \
+			--title "$$release_title" \
+			--notes "Pre-built Linux $$version_label kernels for RISC-V."$$'\n\nTiny shell variants: rv32imac / rv64imac (FPU disabled).\nBuildroot variants: rv32imafd / rv64imafd (FPU enabled for hard-float userspace).\n\nSee README.md inside each tarball for boot instructions (QEMU / Spike).'; \
+		echo "Release $$release_tag published."
 
 clean_packages: ## Remove release tarballs
 	rm -rf $(PWD_DIR)/dist
@@ -545,4 +575,3 @@ clean_spike: ## Remove Spike source and build directories
 		test_qemu test_qemu_kernel test_spike \
         build_all clean clean_spike \
 		package package_all test_all github_release clean_packages
-

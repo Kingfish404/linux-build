@@ -21,6 +21,7 @@ opensbi-build*
 initramfs*
 spike-build*
 dist
+third_party
 
 *.tmp
 *.log

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Use rdinit=/sbin/raptor-shell for a fast, initialized serial shell.
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+if ! /sbin/raptor-mounts; then
+    echo "raptor-shell: runtime filesystem initialization failed" >&2
+else
+    echo "Raptor Buildroot shell: runtime filesystems ready; services are not started."
+fi
+if (exec 0</dev/console) 2>/dev/null; then
+    exec 0</dev/console 1>/dev/console 2>&1
+fi
+exec /bin/busybox cttyhack /bin/sh -l

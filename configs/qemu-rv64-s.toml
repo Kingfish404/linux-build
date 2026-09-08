@@ -2,7 +2,7 @@
 #
 # Both minimal and buildroot variants are built from this single config.
 #
-# Build:  make configure SYSTEM=configs/qemu-rv64.toml
+# Build:  make configure SYSTEM=configs/qemu-rv64-s.toml
 #         make build
 # Test:   make test                              # boots minimal
 #         make test_qemu_kernel_buildroot        # boots buildroot
@@ -11,10 +11,22 @@
 arch = "riscv64"
 
 [kernel]
-version = "6.18.49"
+version = "6.18.50"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
+# Raptor at 50 MHz: consistent tick period and accounting for both variants.
+HZ_100 = true
+HZ_250 = false
+HZ = 100
+# Runtime filesystems used by tinysh and the Buildroot shell/services.
+PROC_FS = true
+SYSFS = true
+DEVTMPFS = true
+DEVTMPFS_MOUNT = true
+TMPFS = true
+UNIX98_PTYS = true
+
 # Bring-up consoles for common RISC-V ASIC and FPGA UART IP.
 SERIAL_8250 = true
 SERIAL_8250_CONSOLE = true
@@ -98,6 +110,8 @@ RISCV_ISA_ZICBOZ = false
 # --- Buildroot variant (busybox rootfs, FPU enabled) ---
 [buildroot]
 fpu = true
+# Full userspace is validated with the current Raptor RAM size.
+memory = 256
 ssh_port = 2222
 
 [buildroot.kernel.config]

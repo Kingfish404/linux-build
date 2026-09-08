@@ -145,7 +145,7 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
     isa_br  = arch["fpu_isa"] if buildroot_fpu else arch["nofpu_isa"]
     abi_br  = arch["fpu_abi"] if buildroot_fpu else arch["nofpu_abi"]
 
-    kver      = deep_get(cfg, "kernel", "version", default="6.18.49")
+    kver      = deep_get(cfg, "kernel", "version", default="6.18.50")
     rootfs_ty = deep_get(cfg, "rootfs", "type", default="initramfs")
     compress  = deep_get(cfg, "rootfs", "compression", default="gzip")
     loader    = deep_get(cfg, "boot", "loader", default="qemu")
@@ -170,6 +170,7 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
         f"RISCV_ABI_BUILDROOT := {abi_br}",
         "",
         f"QEMU_MEM        := {mem}",
+        f"QEMU_MEM_BUILDROOT := {deep_get(cfg, 'buildroot', 'memory', default=max(mem, 256))}",
         f"QEMU_TIMEOUT    := {timeout if timeout else ''}",
         f"SSH_PORT        := {ssh_port}",
         "",
@@ -259,6 +260,10 @@ def gen_buildroot_config(cfg: dict) -> str:
         "# Auto-generated Buildroot config fragment — DO NOT EDIT",
         "# Source: system.toml  ->  applied on top of qemu_riscv*_virt_defconfig",
         "",
+        "# linux-build supplies the kernel, firmware and host emulator.",
+        "# BR2_LINUX_KERNEL is not set",
+        "# BR2_PACKAGE_HOST_QEMU is not set",
+        "",
         "# --- Output format ---",
         "BR2_TARGET_ROOTFS_CPIO=y",
     ]
@@ -271,6 +276,16 @@ def gen_buildroot_config(cfg: dict) -> str:
     lines.extend([
         "# Disable ext2 image (only need cpio)",
         "# BR2_TARGET_ROOTFS_EXT2 is not set",
+        "",
+    ])
+
+    # Common capability baseline; independent of the optional package set.
+    baseline = Path(__file__).resolve().parents[1] / 'rootfs'
+    lines.extend([
+        "# --- Raptor runtime baseline ---",
+        "BR2_PACKAGE_BUSYBOX=y",
+        f'BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="{baseline / "busybox.fragment"}"',
+        f'BR2_ROOTFS_OVERLAY="{baseline / "overlay"}"',
         "",
     ])
 

@@ -69,8 +69,8 @@ struct pollfd {
 };
 
 struct kernel_timespec {
-    long seconds;
-    long nanoseconds;
+    s64 seconds;
+    s64 nanoseconds;
 };
 
 struct new_utsname {

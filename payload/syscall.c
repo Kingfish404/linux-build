@@ -12,10 +12,16 @@
 #define SYS_GETDENTS64 61
 #define SYS_READ 63
 #define SYS_WRITE 64
+#if __riscv_xlen == 32
+#define SYS_PPOLL 414 /* ppoll_time64 */
+#define SYS_CLOCK_NANOSLEEP 407 /* clock_nanosleep_time64 */
+#else
 #define SYS_PPOLL 73
+#define SYS_CLOCK_NANOSLEEP 115
+#endif
 #define SYS_SYNC 81
 #define SYS_EXIT 93
-#define SYS_NANOSLEEP 101
+#define SYS_WAITID 95
 #define SYS_REBOOT 142
 #define SYS_UNAME 160
 #define SYS_SYSINFO 179
@@ -115,7 +121,8 @@ long sys_mount(const char *source, const char *target, const char *type,
 
 long sys_nanosleep(const struct kernel_timespec *duration)
 {
-    return syscall6(SYS_NANOSLEEP, (long)duration, 0, 0, 0, 0, 0);
+    /* CLOCK_MONOTONIC, relative duration, native time64 layout on both XLENs. */
+    return syscall6(SYS_CLOCK_NANOSLEEP, 1, 0, (long)duration, 0, 0, 0);
 }
 
 long sys_uname(struct new_utsname *name)
@@ -197,7 +204,30 @@ long sys_execve(const char *path, char *const argv[], char *const envp[])
 
 long sys_wait4(int process_id, int *status, int options)
 {
+#if __riscv_xlen == 32
+    /* RV32 Linux exposes waitid, not the legacy wait4 syscall. */
+    int info[32]; /* 128-byte RV32 siginfo_t, union starts at byte 12. */
+    info[3] = 0; /* WNOHANG may return without reporting a child. */
+    int type = process_id > 0 ? 1 : process_id == -1 ? 0 : 2;
+    unsigned int id = process_id > 0 ? (unsigned int)process_id
+                       : process_id < -1 ? 0u - (unsigned int)process_id : 0;
+    long result = syscall6(SYS_WAITID, type, id, (long)info, options | 4, 0, 0);
+    if (result < 0 || info[3] == 0) return result;
+    if (status != NULL) {
+        switch (info[2]) {
+        case 1: *status = (info[5] & 255) << 8; break; /* CLD_EXITED */
+        case 2: *status = info[5] & 127; break;       /* CLD_KILLED */
+        case 3: *status = (info[5] & 127) | 128; break;
+        case 4:
+        case 5: *status = ((info[5] & 255) << 8) | 127; break;
+        case 6: *status = 0xffff; break;             /* CLD_CONTINUED */
+        default: return -22;
+        }
+    }
+    return info[3];
+#else
     return syscall6(SYS_WAIT4, process_id, (long)status, options, 0, 0, 0);
+#endif
 }
 
 void sys_sync(void)

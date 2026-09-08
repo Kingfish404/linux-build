@@ -1,0 +1,10 @@
+#!/bin/sh
+# Execute a program and report its exit status like tinysh's run command.
+if [ "$#" -eq 0 ]; then
+    echo "usage: run PATH [ARG...]" >&2
+    exit 2
+fi
+"$@"
+status=$?
+echo "exit $status"
+exit "$status"

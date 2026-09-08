@@ -1,0 +1,13 @@
+#!/bin/sh
+# tinysh-compatible numeric IPv4 HTTP fetch helper.
+if [ "$#" -ne 4 ]; then
+    echo "usage: fetch IPv4 PORT /REMOTE_PATH LOCAL_PATH" >&2
+    exit 2
+fi
+case "$3" in /*) ;; *) echo "fetch: remote path must start with /" >&2; exit 2;; esac
+if wget -O "$4" "http://$1:$2$3" && chmod 755 "$4"; then
+    echo "saved $(wc -c < "$4") bytes to $4"
+else
+    echo "fetch: download failed" >&2
+    exit 1
+fi

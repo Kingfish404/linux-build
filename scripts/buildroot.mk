@@ -22,8 +22,8 @@ ifneq ($(SYSTEM_PRESET),)
 else
   BUILDROOT_RELEASE_NAME    := linux-riscv-rv$(BITS)-buildroot-v$(KERNEL_VERSION)
 endif
-BUILDROOT_RELEASE_TARBALL := $(PWD_DIR)/dist/$(BUILDROOT_RELEASE_NAME).tar.gz
-BUILDROOT_RELEASE_STAGING := $(PWD_DIR)/dist/$(BUILDROOT_RELEASE_NAME)
+BUILDROOT_RELEASE_TARBALL := $(DIST_DIR)/$(BUILDROOT_RELEASE_NAME).tar.gz
+BUILDROOT_RELEASE_STAGING := $(DIST_DIR)/$(BUILDROOT_RELEASE_NAME)
 
 # QEMU kernel boot arguments for Buildroot (uses BUILDROOT_CPIO)
 QEMU_KERNEL_BUILDROOT_ARGS = \
@@ -79,6 +79,14 @@ make_initramfs_buildroot: buildroot ## Build Buildroot initramfs incrementally
 	  done
 	cat $(BUILDROOT_CFG) >> $(BUILDROOT_DIR)/.config
 	make -C $(BUILDROOT_DIR) olddefconfig
+	# Upstream QEMU defconfigs used to install modules for a different kernel.
+	# The external linux-build kernel supplies all required built-in drivers.
+	@if ! grep -q '^BR2_LINUX_KERNEL=y' $(BUILDROOT_DIR)/.config; then \
+		rm -rf $(BUILDROOT_DIR)/output/target/lib/modules $(BUILDROOT_DIR)/output/target/usr/lib/modules; \
+	fi
+	# A newly selected fragment may be older than BusyBox stamps. Reconfigure
+	# explicitly instead of relying only on file timestamps.
+	make -C $(BUILDROOT_DIR) -j$(NPROC) busybox-reconfigure
 	make -C $(BUILDROOT_DIR) -j$(NPROC)
 	cp $(BUILDROOT_DIR)/output/images/rootfs.cpio.gz $(BUILDROOT_CPIO)
 	# Save config hash so we can detect when a rebuild is needed
@@ -100,25 +108,28 @@ update_buildroot: ## Rebuild Buildroot rootfs only
 # Like update_buildroot but also re-embeds initramfs into kernel + rebuilds OpenSBI
 # (needed only when booting via fw_payload / test_qemu_buildroot).
 update_buildroot_full: ## Rebuild Buildroot, re-embed initramfs, and rebuild OpenSBI
-	$(MAKE) make_initramfs_buildroot install_initramfs_buildroot build_opensbi_with_kernel
+	$(MAKE) ensure_initramfs_buildroot
+	$(MAKE) KERNEL_VARIANT=buildroot _install_initramfs_buildroot
+	$(MAKE) KERNEL_VARIANT=buildroot RISCV_ISA=$(RISCV_ISA_BUILDROOT) build_opensbi_with_kernel
 
 # ---------------------------------------------------------------------------
 # Embed Buildroot initramfs into kernel Image
 # ---------------------------------------------------------------------------
 
-prepare_kernel_buildroot: linux ## Apply Buildroot kernel config and rebuild Linux
-	$(call require,$(KERNEL_CFG_BUILDROOT),Run 'make configure SYSTEM=configs/<preset>.toml' first.)
-	$(call apply_kconfig_fragment,$(KERNEL_CFG_BUILDROOT))
-	$(KERNEL_MAKE) olddefconfig
-	$(KERNEL_MAKE)
+ensure_initramfs_buildroot: buildroot ## Reuse a verified rootfs cache or rebuild its configuration
+	python3 scripts/ensure-rootfs.py --bits "$(BITS)" --config "$(BUILDROOT_CFG)" --jobs "$(NPROC)"
 
-install_initramfs_buildroot: ## Embed Buildroot initramfs into kernel
-	$(call require,$(BUILDROOT_CPIO),Run make_initramfs_buildroot first.)
-	$(MAKE) prepare_kernel_buildroot
+prepare_kernel_buildroot: linux ## Build the independent Buildroot kernel configuration
+	$(MAKE) KERNEL_VARIANT=buildroot build_linux
+
+install_initramfs_buildroot: linux ## Build kernel with embedded Buildroot initramfs
+	$(MAKE) KERNEL_VARIANT=buildroot _install_initramfs_buildroot
+
+_install_initramfs_buildroot: configure_kernel
+	$(call require,$(BUILDROOT_CPIO),Run ensure_initramfs_buildroot first.)
 	$(KCONFIG) --set-str CONFIG_INITRAMFS_SOURCE $(BUILDROOT_CPIO)
 	$(KERNEL_MAKE) olddefconfig
-	$(KERNEL_MAKE)
-	@echo "Kernel with embedded Buildroot initramfs: $(KERNEL_IMAGE)"
+	$(KERNEL_MAKE) $(KERNEL_TARGETS)
 
 # ---------------------------------------------------------------------------
 # QEMU Buildroot tests
@@ -128,49 +139,46 @@ install_initramfs_buildroot: ## Embed Buildroot initramfs into kernel
 # SSH from host:  ssh root@localhost -p $(SSH_PORT)
 # Host 9P share:  make SHARE_DIR=/path test_qemu_buildroot
 test_qemu_buildroot: ## Boot Buildroot fw_payload in QEMU with networking
-	$(call require,$(FW_PAYLOAD_BIN),Run build_opensbi_with_kernel first.)
+	$(MAKE) KERNEL_VARIANT=buildroot QEMU_MEM=$(QEMU_MEM_BUILDROOT) _test_qemu_buildroot
+
+_test_qemu_buildroot:
+	$(call require,$(FW_PAYLOAD_BIN),Run package_buildroot first.)
 	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_NET) $(QEMU_SHARE) -bios $(FW_PAYLOAD_BIN)
 
-test_qemu_kernel_buildroot: ## Boot kernel plus Buildroot initramfs in QEMU
-	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
-	$(call require,$(BUILDROOT_CPIO),Run make_initramfs_buildroot first.)
-	$(MAKE) prepare_kernel_buildroot
+test_qemu_kernel_buildroot: ## Boot independent Buildroot kernel and initramfs in QEMU
+	$(MAKE) KERNEL_VARIANT=buildroot QEMU_MEM=$(QEMU_MEM_BUILDROOT) _test_qemu_kernel_buildroot
+
+_test_qemu_kernel_buildroot:
+	$(call require,$(KERNEL_IMAGE),Run install_initramfs_buildroot first.)
+	$(call require,$(FW_DYNAMIC_BIN),Run package_buildroot first.)
 	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_NET) $(QEMU_SHARE) $(QEMU_KERNEL_BUILDROOT_ARGS)
+
+test_qemu_buildroot_shell: ## Boot a fast Buildroot shell with runtime filesystems mounted
+	$(MAKE) KERNEL_VARIANT=buildroot QEMU_MEM=$(QEMU_MEM_BUILDROOT) _test_qemu_buildroot_shell
+
+_test_qemu_buildroot_shell:
+	$(call require,$(KERNEL_IMAGE),Run package_buildroot first.)
+	$(call require,$(FW_DYNAMIC_BIN),Run package_buildroot first.)
+	$(call require,$(BUILDROOT_CPIO),Run package_buildroot first.)
+	$(IF_TIMEOUT) $(QEMU_BASE) $(QEMU_NET) $(QEMU_SHARE) \
+		-bios $(FW_DYNAMIC_BIN) -kernel $(KERNEL_IMAGE) -initrd $(BUILDROOT_CPIO) \
+		-append "root=/dev/ram rdinit=/sbin/raptor-shell console=ttyS0 earlycon=sbi ip=dhcp"
 
 # ---------------------------------------------------------------------------
 # Package Buildroot artifacts
 # ---------------------------------------------------------------------------
 
-package_buildroot: linux opensbi ## Package Buildroot artifacts
-	@if [ ! -f $(BUILDROOT_CFG) ]; then \
-		echo "No .config.buildroot found, skipping buildroot packaging."; \
-		exit 0; \
-	fi
-	@echo "--- Packaging Buildroot artifacts for rv$(BITS) ---"
-	$(call require,$(KERNEL_IMAGE),Run build_linux first.)
-	# Rebuild buildroot if config changed or CPIO missing
-	@if [ ! -f $(BUILDROOT_CPIO) ] || [ ! -f $(BUILDROOT_STAMP) ] || \
-	   [ "$$(md5sum $(BUILDROOT_CFG) 2>/dev/null | cut -d' ' -f1)" != "$$(cat $(BUILDROOT_STAMP) 2>/dev/null)" ]; then \
-		echo "Buildroot config changed or CPIO missing, rebuilding (clean)..."; \
-		$(MAKE) make_initramfs_buildroot_clean; \
-	fi
-	# Apply buildroot kernel config, re-embed initramfs, rebuild with buildroot ISA
-	$(call apply_kconfig_fragment,$(KERNEL_CFG_BUILDROOT))
-	$(KCONFIG) --set-str CONFIG_INITRAMFS_SOURCE $(BUILDROOT_CPIO)
-	$(KERNEL_MAKE) olddefconfig
-	$(KERNEL_MAKE)
+package_buildroot: linux opensbi ## Package Buildroot artifacts from an independent kernel configuration
+	$(MAKE) ensure_initramfs_buildroot
+	$(MAKE) KERNEL_VARIANT=buildroot _package_buildroot
+
+_package_buildroot: _install_initramfs_buildroot
 	$(MAKE) RISCV_ISA=$(RISCV_ISA_BUILDROOT) build_opensbi_with_kernel
-	@echo "--- Assembling $(BUILDROOT_RELEASE_NAME) ---"
-	rm -rf $(BUILDROOT_RELEASE_STAGING)
-	mkdir -p $(BUILDROOT_RELEASE_STAGING)
-	cp $(FW_PAYLOAD_BIN) $(FW_PAYLOAD_ELF) $(FW_DYNAMIC_BIN) $(BUILDROOT_RELEASE_STAGING)/
-	cp $(KERNEL_IMAGE) $(BUILDROOT_RELEASE_STAGING)/
-	cp $(BUILDROOT_CPIO) $(BUILDROOT_RELEASE_STAGING)/initramfs.cpio.gz
-	cp $(OBJDIR)/vmlinux $(BUILDROOT_RELEASE_STAGING)/
-	bash scripts/gen-package-readme.sh $(BITS) $(KERNEL_VERSION) $(RISCV_ISA_BUILDROOT) $(RISCV_ABI_BUILDROOT) buildroot $(SYSTEM_PRESET) \
-		> $(BUILDROOT_RELEASE_STAGING)/README.md
-	tar -czf $(BUILDROOT_RELEASE_TARBALL) -C $(PWD_DIR)/dist $(BUILDROOT_RELEASE_NAME)
-	@echo "Package ready: $(BUILDROOT_RELEASE_TARBALL)"
+	python3 scripts/package-artifacts.py --dist "$(DIST_DIR)" --name "$(BUILDROOT_RELEASE_NAME)" \
+		--kernel-dir "$(OBJDIR)" --firmware-dir "$(OPENSBI_OBJDIR)/platform/generic/firmware" \
+		--initramfs "$(BUILDROOT_CPIO)" --preset "configs/$(SYSTEM_PRESET).toml" \
+		--variant buildroot --isa "$(RISCV_ISA_BUILDROOT)" --abi "$(RISCV_ABI_BUILDROOT)" \
+		--fdt-offset "$(FW_PAYLOAD_FDT_OFFSET)"
 
 # ---------------------------------------------------------------------------
 # Housekeeping
@@ -179,9 +187,11 @@ package_buildroot: linux opensbi ## Package Buildroot artifacts
 clean_buildroot: ## Remove Buildroot clone directories
 	rm -rf buildroot32 buildroot64
 
-.PHONY: buildroot \
+.PHONY: ensure_initramfs_buildroot _install_initramfs_buildroot _package_buildroot _test_qemu_buildroot _test_qemu_kernel_buildroot buildroot \
         make_initramfs_buildroot make_initramfs_buildroot_clean \
 	prepare_kernel_buildroot install_initramfs_buildroot \
         update_buildroot update_buildroot_full \
         test_qemu_buildroot test_qemu_kernel_buildroot \
         package_buildroot clean_buildroot
+
+.PHONY: test_qemu_buildroot_shell _test_qemu_buildroot_shell

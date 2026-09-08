@@ -15,6 +15,18 @@ version = "7.2.3"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
+# Raptor at 50 MHz: consistent tick period and accounting for both variants.
+HZ_100 = true
+HZ_250 = false
+HZ = 100
+# Runtime filesystems used by tinysh and the Buildroot shell/services.
+PROC_FS = true
+SYSFS = true
+DEVTMPFS = true
+DEVTMPFS_MOUNT = true
+TMPFS = true
+UNIX98_PTYS = true
+
 # Print the resolved virtual memory layout during boot for Sv39 validation.
 DEBUG_VM = true
 
@@ -101,6 +113,8 @@ RISCV_ISA_ZICBOZ = false
 # --- Buildroot variant (busybox rootfs, FPU enabled) ---
 [buildroot]
 fpu = true
+# Full userspace is validated with the current Raptor RAM size.
+memory = 256
 ssh_port = 2222
 
 [buildroot.kernel.config]
@@ -117,5 +131,5 @@ include = ["openssh", "strace", "htop", "lsof", "file", "tree"]
 
 [boot]
 loader = "qemu"
-memory = 512
+memory = 256
 timeout = 0

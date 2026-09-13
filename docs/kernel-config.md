@@ -22,7 +22,10 @@ Tiny and Buildroot kernels have independent output directories. Use
 `KERNEL_VARIANT=buildroot` explicitly selects that variant for lower-level
 kernel and firmware commands.
 
-The freestanding RV32 `/init` uses `rv32ima_zicsr_zifencei_zicntr` / `ilp32`;
+The shared kernel fragment explicitly enables `CONFIG_RISCV_ISA_C`, and the
+Buildroot fragment enables `BR2_RISCV_ISA_RVC` for both RV32 and RV64.
+
+The freestanding RV32 `/init` uses `rv32imac_zicsr_zifencei_zicntr` / `ilp32`;
 RV64 uses `rv64imac_zicsr_zifencei` / `lp64`. RV32 time-related syscalls use
 time64 layouts and numbers. Child reaping uses waitid on RV32 and wait4 on RV64.
 

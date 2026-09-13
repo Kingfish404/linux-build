@@ -9,7 +9,7 @@ CC := $(CROSS_COMPILE)gcc
 ifeq ($(BITS),64)
   CFLAGS := -march=rv64imac_zicsr_zifencei -mabi=lp64 -nostdlib -ffreestanding -fno-builtin
 else
-  CFLAGS := -march=rv32ima_zicsr_zifencei_zicntr -mabi=ilp32 -nostdlib -ffreestanding -fno-builtin
+  CFLAGS := -march=rv32imac_zicsr_zifencei_zicntr -mabi=ilp32 -nostdlib -ffreestanding -fno-builtin
 endif
 
 LDFLAGS := -Wl,-e,_start -static
@@ -23,7 +23,7 @@ tiny_shell: init_shell
 init_shell: FORCE $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJECTS)
 
-$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Wall -Wextra -Werror -MMD -MP -c -o $@ $<
 
 $(BUILD_DIR):

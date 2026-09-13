@@ -158,16 +158,17 @@ def main():
     payload_offset = firmware.find(image)
     if payload_offset != text_offset:
         ap.error('OpenSBI does not contain the expected Image at its load offset')
-    memory = (preset.get('buildroot', {}).get('memory', 256) if a.variant == 'buildroot'
+    memory = (preset.get('buildroot', {}).get('memory', 1024) if a.variant == 'buildroot'
               else preset['boot']['memory'])
     if text_offset + max(memory_size, len(image)) > a.fdt_offset or a.fdt_offset + 65536 > memory * 1024 * 1024:
         ap.error('kernel/DTB layout exceeds the declared RAM or overlaps')
     inputs = {}
     source_files = [root / 'Makefile', root / 'scripts/gen-config.py', root / 'scripts/buildroot.mk',
                     root / 'scripts/prepare-opensbi.py', root / 'scripts/package-artifacts.py',
-                    root / 'scripts/ensure-rootfs.py', a.preset.resolve()]
+                    root / 'scripts/ensure-rootfs.py', root / 'scripts/prepare-linux.py', a.preset.resolve()]
     source_files += [p for p in (root / 'payload').iterdir() if p.suffix in ('.c', '.h') or p.name == 'Makefile']
-    source_files += [p for p in (root / 'rootfs').rglob('*') if p.is_file()]
+    source_files += [root / 'rootfs/busybox.fragment']
+    source_files += [p for p in (root / 'rootfs/overlay').rglob('*') if p.is_file()]
     for p in source_files:
         inputs[str(p.resolve().relative_to(root))] = sha(p)
     m = {'schema': 1, 'preset': a.preset.stem, 'variant': a.variant, 'bits': bits,
@@ -191,6 +192,9 @@ def main():
         shutil.copy2(a.kernel_dir / '.config', stage / 'kernel.config')
         shutil.copy2(a.initramfs, stage / 'initramfs.cpio.gz')
         shutil.copy2(a.preset, stage / 'preset.toml')
+        source_record = a.kernel_dir / 'source/.linux-build-source.json'
+        if source_record.is_file():
+            shutil.copy2(source_record, stage / 'kernel-source.json')
         rootfs_manifest = root / f'initramfs{bits}-buildroot.manifest.json'
         if a.variant == 'buildroot' and rootfs_manifest.exists():
             shutil.copy2(rootfs_manifest, stage / 'rootfs-manifest.json')
@@ -202,7 +206,9 @@ def main():
             archive.add(stage, arcname=a.name)
         destination = a.dist / a.name
         if destination.exists():
-            shutil.rmtree(destination)
+            prior = a.dist / '.superseded'
+            prior.mkdir(exist_ok=True)
+            destination.rename(prior / (a.name + '-' + str(time.time_ns())))
         shutil.move(str(stage), destination)
         os.replace(archive_tmp, a.dist / (a.name + '.tar.gz'))
     print(f'Package ready: {a.dist / (a.name + ".tar.gz")} (HZ={hz}, FPU={fpu})')

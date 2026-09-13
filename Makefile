@@ -9,7 +9,7 @@ PWD_DIR=$(abspath .)
 # ---------------------------------------------------------------------------
 -include $(PWD_DIR)/.config.mk
 
-KERNEL_VERSION ?= 6.18.50## Linux kernel version to download and build
+KERNEL_VERSION ?= 6.18.51## Linux kernel version to download and build
 
 # Internal: target bitness, set automatically by .config.mk (default: 32)
 BITS ?= 32## Target bitness (32 or 64; usually set by configure)
@@ -28,14 +28,14 @@ ifeq ($(BITS),64)
     CROSS_COMPILE ?= riscv64-linux-gnu-
   endif
   RISCV_XLEN  := 64
-  RISCV_ISA   := rv64imac_zicntr_zicsr_zifencei
-  RISCV_ABI   := lp64
+  RISCV_ISA   ?= rv64imac_zicntr_zicsr_zifencei
+  RISCV_ABI   ?= lp64
 else
   BITS         := 32
   CROSS_COMPILE ?= riscv64-linux-gnu-
   RISCV_XLEN  := 32
-  RISCV_ISA   := rv32imac_zicntr_zicsr_zifencei
-  RISCV_ABI   := ilp32
+  RISCV_ISA   ?= rv32imac_zicntr_zicsr_zifencei
+  RISCV_ABI   ?= ilp32
 endif
 
 # Declarative build variables (set by .config.mk or defaults)
@@ -49,15 +49,15 @@ RISCV_ISA_BUILDROOT ?= $(RISCV_ISA)## ISA used when packaging Buildroot artifact
 RISCV_ABI_BUILDROOT ?= $(RISCV_ABI)## ABI used when packaging Buildroot artifacts
 
 # Kernel variants must not inherit each other's configuration or firmware flags.
-KERNEL_VARIANT ?= minimal## Kernel variant: minimal or buildroot
+KERNEL_VARIANT ?= minimal## Kernel variant: minimal, buildroot or distro
 BUILD_ROOT ?= $(PWD_DIR)## Parent directory for kernel/OpenSBI build outputs
 DIST_DIR ?= $(PWD_DIR)/dist## Release output directory
 RELEASE_BUILD_ROOT ?= $(PWD_DIR)/dist/.release-work## Isolated build cache for the release matrix
 RELEASE_RESUME ?= 0## Reuse matching completed packages when set to 1
 PACKAGE_TEST_JOBS ?= 2## Concurrent QEMU package tests
 KERNEL_TARGETS ?= Image## Kernel build targets (add modules explicitly if needed)
-OBJDIR         := $(BUILD_ROOT)/$(if $(filter buildroot,$(KERNEL_VARIANT)),buildroot$(BITS)-kernel,build$(BITS))
-OPENSBI_OBJDIR := $(BUILD_ROOT)/opensbi-build$(BITS)$(if $(filter buildroot,$(KERNEL_VARIANT)),-buildroot,)
+OBJDIR         := $(BUILD_ROOT)/$(if $(filter distro,$(KERNEL_VARIANT)),$(SYSTEM_PRESET)-kernel,$(if $(filter buildroot,$(KERNEL_VARIANT)),buildroot$(BITS)-kernel,build$(BITS)))
+OPENSBI_OBJDIR := $(BUILD_ROOT)/opensbi-build$(BITS)$(if $(filter distro,$(KERNEL_VARIANT)),-$(SYSTEM_PRESET),$(if $(filter buildroot,$(KERNEL_VARIANT)),-buildroot,))
 KERNEL_VERSION_STAMP := $(OBJDIR)/.kernel-version
 
 # Per-bitness tiny shell initramfs outputs
@@ -73,8 +73,8 @@ SPIKE_BUILD := $(PWD_DIR)/spike-build
 SPIKE       := $(if $(wildcard $(SPIKE_BUILD)/bin/spike),$(SPIKE_BUILD)/bin/spike,spike)
 
 NPROC     := $(shell nproc)
-QEMU_MEM_BUILDROOT ?= 256## Buildroot QEMU guest RAM in MiB
-QEMU_MEM     ?= 256## QEMU guest RAM in MiB
+QEMU_MEM_BUILDROOT ?= 1024## Buildroot QEMU guest RAM in MiB
+QEMU_MEM     ?= 1024## QEMU guest RAM in MiB
 # Optional: set QEMU_TIMEOUT=N (seconds) to auto-exit after N seconds.
 # Default is empty (run until Ctrl-C or guest halts).
 QEMU_TIMEOUT ?=## Auto-exit QEMU after N seconds (empty = run until Ctrl-C)
@@ -102,7 +102,8 @@ RELEASE_STAGING := $(DIST_DIR)/$(RELEASE_NAME)
 SYSTEM_CONFIGS := $(sort $(wildcard $(PWD_DIR)/configs/*.toml))
 
 # Linux kernel source directory (versioned so multiple kernels can coexist)
-LINUX_DIR := $(PWD_DIR)/linux/linux-$(KERNEL_VERSION)
+LINUX_SOURCE_ROOT ?= $(PWD_DIR)/linux## Directory holding versioned upstream Linux sources
+LINUX_DIR := $(LINUX_SOURCE_ROOT)/linux-$(KERNEL_VERSION)
 
 # All kernel make invocations use a separate output dir via O=
 KERNEL_MAKE := make -C $(LINUX_DIR) O=$(OBJDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) -j$(NPROC)
@@ -150,6 +151,7 @@ QEMU_KERNEL_ARGS = \
 # Buildroot targets and variables (uses variables defined above)
 # ---------------------------------------------------------------------------
 include scripts/buildroot.mk
+include scripts/distro.mk
 
 HELP_FILES := $(filter-out $(PWD_DIR)/.config.mk,$(MAKEFILE_LIST))
 
@@ -263,9 +265,13 @@ endef
 KERNEL_CFG          := $(PWD_DIR)/.config.kernel
 KERNEL_CFG_MINIMAL  := $(PWD_DIR)/.config.kernel.minimal
 KERNEL_CFG_BUILDROOT := $(PWD_DIR)/.config.kernel.buildroot
+KERNEL_CFG_DISTRO := $(PWD_DIR)/.config.kernel.distro
 
-# Unified build: always builds the tiny shell variant; also builds buildroot when .config.buildroot exists
-build: linux opensbi ## Build kernel, tiny shell initramfs, OpenSBI, and optional Buildroot
+# Distribution presets use disk roots; existing presets retain their initramfs paths.
+build: linux opensbi ## Build the selected distribution or tiny shell/Buildroot system
+ifneq ($(filter alpine debian,$(SYSTEM_ROOTFS)),)
+	$(MAKE) build_distro
+else
 	# --- Tiny shell variant ---
 	$(MAKE) build_linux
 	$(MAKE) make_initramfs_tiny_shell
@@ -280,10 +286,13 @@ build: linux opensbi ## Build kernel, tiny shell initramfs, OpenSBI, and optiona
 	fi
 	@echo ""
 	@echo "Build complete.  Run: make test"
+endif
 
-# Unified test: boot the tiny shell variant in emulator per config
+# Unified test: boot the configured disk or tiny shell variant.
 test: ## Boot the configured system in QEMU or Spike
-ifeq ($(SYSTEM_LOADER),spike)
+ifneq ($(filter alpine debian,$(SYSTEM_ROOTFS)),)
+	$(MAKE) test_qemu_distro
+else ifeq ($(SYSTEM_LOADER),spike)
 	$(MAKE) test_spike
 else
 	$(MAKE) test_qemu_kernel
@@ -292,6 +301,7 @@ endif
 clean_config: ## Remove generated .config.* files
 	rm -f $(PWD_DIR)/.config.mk $(PWD_DIR)/.config.kernel \
 	     $(PWD_DIR)/.config.kernel.minimal $(PWD_DIR)/.config.kernel.buildroot \
+	     $(PWD_DIR)/.config.kernel.distro \
 	     $(PWD_DIR)/.config.buildroot
 	@echo "Declarative config removed."
 
@@ -300,12 +310,7 @@ clean_config: ## Remove generated .config.* files
 # ---------------------------------------------------------------------------
 
 linux: ## Download and extract Linux kernel source
-	@if [ -d $(LINUX_DIR) ]; then echo "$(LINUX_DIR) already exists, skipping download"; else \
-		mkdir -p $(PWD_DIR)/linux && \
-		wget https://cdn.kernel.org/pub/linux/kernel/$(KERNEL_MAJOR)/linux-$(KERNEL_VERSION).tar.xz && \
-		tar -xf linux-$(KERNEL_VERSION).tar.xz -C $(PWD_DIR)/linux && \
-		rm linux-$(KERNEL_VERSION).tar.xz; \
-	fi
+	python3 scripts/prepare-linux.py --version "$(KERNEL_VERSION)" --source-root "$(LINUX_SOURCE_ROOT)"
 
 opensbi: ## Clone OpenSBI source
 	@if [ -d opensbi ]; then echo "opensbi/ already exists, skipping clone"; else \
@@ -329,7 +334,7 @@ build_spike: spike_src ## Build and install local Spike simulator
 # ---------------------------------------------------------------------------
 
 configure_kernel: linux ## Generate a fresh shared + variant kernel configuration
-	@test "$(KERNEL_VARIANT)" = minimal -o "$(KERNEL_VARIANT)" = buildroot
+	@test "$(KERNEL_VARIANT)" = minimal -o "$(KERNEL_VARIANT)" = buildroot -o "$(KERNEL_VARIANT)" = distro
 	@if [ -d "$(OBJDIR)" ] && { [ ! -f "$(KERNEL_VERSION_STAMP)" ] || \
 	   [ "$$(cat "$(KERNEL_VERSION_STAMP)" 2>/dev/null)" != "$(KERNEL_VERSION)" ]; }; then \
 		echo "Kernel version changed; removing stale $(OBJDIR) output"; \
@@ -346,7 +351,7 @@ else
 endif
 	# Start from defconfig; apply only the selected variant's fragment.
 	$(call apply_kconfig_fragment,$(KERNEL_CFG))
-	$(call apply_kconfig_fragment,$(if $(filter buildroot,$(KERNEL_VARIANT)),$(KERNEL_CFG_BUILDROOT),$(KERNEL_CFG_MINIMAL)))
+	$(call apply_kconfig_fragment,$(if $(filter distro,$(KERNEL_VARIANT)),$(KERNEL_CFG_DISTRO),$(if $(filter buildroot,$(KERNEL_VARIANT)),$(KERNEL_CFG_BUILDROOT),$(KERNEL_CFG_MINIMAL))))
 	$(KERNEL_MAKE) olddefconfig
 
 build_linux: configure_kernel ## Configure and build Linux kernel
@@ -464,8 +469,12 @@ build_all: linux opensbi ## Build RV32 and RV64 tiny shell variants
 #   make package_all       -> build + package every preset under configs/
 # ---------------------------------------------------------------------------
 
-package: linux opensbi ## Package tiny shell artifacts
+package: linux opensbi ## Package selected tiny-shell or persistent distribution variant
+ifneq ($(filter alpine debian,$(SYSTEM_ROOTFS)),)
+	$(MAKE) package_distro
+else
 	$(MAKE) KERNEL_VARIANT=minimal _package_minimal
+endif
 
 _package_minimal: configure_kernel
 	$(MAKE) make_initramfs_tiny_shell

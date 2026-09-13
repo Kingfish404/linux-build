@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+# Debian's upstream busybox-static omits the mountpoint applet.
+grep -q ' /dev devtmpfs ' /proc/mounts || /bin/busybox mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /dev/shm /run /tmp
+/bin/busybox mount -t devpts -o gid=5,mode=620 devpts /dev/pts
+/bin/busybox mount -t tmpfs -o mode=1777 tmpfs /dev/shm
+/bin/busybox mount -t tmpfs -o mode=0755 tmpfs /run
+ln -sf /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin
+ln -sf /proc/self/fd/1 /dev/stdout
+ln -sf /proc/self/fd/2 /dev/stderr
+/bin/busybox hostname raptor
+/bin/busybox ip link set lo up
+# Retry in background if no DHCP server is currently available; retain leases.
+/bin/busybox udhcpc -b -i eth0 -s /etc/raptor-udhcpc.script
+if command -v sshd >/dev/null; then
+    mkdir -p /run/sshd
+    ssh-keygen -A
+    "$(command -v sshd)"
+fi
+echo 'Raptor distribution ready: press Enter for a root console.'

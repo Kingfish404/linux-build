@@ -11,7 +11,7 @@
 arch = "riscv32"
 
 [kernel]
-version = "6.18.50"
+version = "6.18.51"
 
 # Shared kernel config applied to all variants (on top of defconfig)
 [kernel.config]
@@ -111,7 +111,7 @@ RISCV_ISA_ZICBOZ = false
 [buildroot]
 fpu = true
 # Full userspace is validated with the current Raptor RAM size.
-memory = 256
+memory = 1024
 ssh_port = 2222
 
 [buildroot.kernel.config]
@@ -128,5 +128,5 @@ include = ["openssh"]
 
 [boot]
 loader = "qemu"
-memory = 256
+memory = 1024
 timeout = 0

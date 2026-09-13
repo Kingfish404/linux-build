@@ -1,0 +1,41 @@
+# RV64GC Alpine userspace; official apk repositories, persistent ext4 root.
+# make configure SYSTEM=configs/qemu-rv64-alpine.toml && make build && make test
+[target]
+arch = "riscv64"
+[kernel]
+version = "6.18.51"
+[rootfs]
+type = "alpine"
+image = "docker.io/library/alpine:3.23"
+size_mib = 512
+packages = ["ca-certificates", "curl", "openssh", "strace", "htop", "lsof", "file", "tree"]
+[distro.kernel.config]
+FPU = true
+RISCV_ISA_C = true
+HZ_100 = true
+HZ_250 = false
+HZ = 100
+BLK_DEV_INITRD = true
+INITRAMFS_SOURCE = ""
+PROC_FS = true
+SYSFS = true
+DEVTMPFS = true
+DEVTMPFS_MOUNT = true
+TMPFS = true
+UNIX98_PTYS = true
+NET = true
+INET = true
+VIRTIO = true
+VIRTIO_MMIO = true
+VIRTIO_BLK = true
+VIRTIO_NET = true
+EXT4_FS = true
+NET_9P = true
+NET_9P_VIRTIO = true
+9P_FS = true
+SERIAL_8250 = true
+SERIAL_8250_CONSOLE = true
+[boot]
+loader = "qemu"
+memory = 1024
+timeout = 0

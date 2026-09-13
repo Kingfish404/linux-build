@@ -106,20 +106,28 @@ make test_qemu_kernel_buildroot
 
 ## Presets
 
+RV64 also has `qemu-rv64-alpine.toml` (apk) and `qemu-rv64-debian.toml` (apt).
+After selecting either with `make configure`, `make build` creates a persistent
+ext4 root disk plus the kernel/OpenSBI, and `make test` boots it. These need a
+host Skopeo plus full-system QEMU (no host binfmt changes); their clean disk
+packages are included in the release gate with install/reboot persistence tests.
+See [distribution root filesystems](docs/distributions.md)
+for setup, persistence, runtime limits, and the Buildroot comparison.
+
 Available presets live in [configs/](configs/):
 
 | Preset             | Arch | Tiny RAM | Buildroot packages                      | Notes                                     |
 | ------------------ | ---- | ------ | --------------------------------------- | ----------------------------------------- |
-| `qemu-rv32-fast`   | RV32 | 64 MB  | openssh                                 | Aggressively trimmed tiny shell boot path |
-| `qemu-rv64-fast`   | RV64 | 64 MB  | openssh                                 | Aggressively trimmed tiny shell boot path |
-| `qemu-rv32`        | RV32 | 256 MB | openssh, strace, htop, lsof, file, tree | Default RV32 preset |
-| `qemu-rv64`        | RV64 | 256 MB | openssh, strace, htop, lsof, file, tree | Default RV64 preset                       |
-| `qemu-rv32-s`      | RV32 | 256 MB | openssh                                 | Smaller RV32 preset                       |
-| `qemu-rv64-s`      | RV64 | 256 MB | openssh                                 | Smaller RV64 preset                       |
-| `qemu-rv32-m`      | RV32 | 256 MB | openssh                                 | Keeps selected bit-manip extensions       |
-| `qemu-rv64-m`      | RV64 | 256 MB | openssh                                 | Keeps selected bit-manip extensions       |
-| `qemu-rv32-latest` | RV32 | 256 MB | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
-| `qemu-rv64-latest` | RV64 | 256 MB | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
+| `qemu-rv32-fast`   | RV32 | 1 GiB  | openssh                                 | Aggressively trimmed tiny shell boot path |
+| `qemu-rv64-fast`   | RV64 | 1 GiB  | openssh                                 | Aggressively trimmed tiny shell boot path |
+| `qemu-rv32`        | RV32 | 1 GiB  | openssh, strace, htop, lsof, file, tree | Default RV32 preset |
+| `qemu-rv64`        | RV64 | 1 GiB  | openssh, strace, htop, lsof, file, tree | Default RV64 preset                       |
+| `qemu-rv32-s`      | RV32 | 1 GiB  | openssh                                 | Smaller RV32 preset                       |
+| `qemu-rv64-s`      | RV64 | 1 GiB  | openssh                                 | Smaller RV64 preset                       |
+| `qemu-rv32-m`      | RV32 | 1 GiB  | openssh                                 | Keeps selected bit-manip extensions       |
+| `qemu-rv64-m`      | RV64 | 1 GiB  | openssh                                 | Keeps selected bit-manip extensions       |
+| `qemu-rv32-latest` | RV32 | 1 GiB  | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
+| `qemu-rv64-latest` | RV64 | 1 GiB  | openssh, strace, htop, lsof, file, tree | Latest-kernel hardware bring-up preset    |
 
 ### Raptor-chip FPGA kernel and firmware settings
 
@@ -127,7 +135,7 @@ All ten RV32/RV64 presets set HZ=100 in the shared kernel configuration for
 both tiny shell and Buildroot variants. This reduces timer interrupt pressure
 on the current 50 MHz Raptor FPGA. HZ is independent of the DTB's
 `timebase-frequency`, which must describe the actual hardware timer.
-All Buildroot variants use 256 MiB in QEMU, including the fast presets.
+All presets and variants use 1 GiB in QEMU, including fast, Alpine and Debian.
 
 ```bash
 make configure SYSTEM=configs/qemu-rv64.toml  # or qemu-rv32.toml
@@ -193,7 +201,7 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 | `make_initramfs_tiny_shell`      | Build `initramfs$(BITS).cpio.gz` with `/init` and required device nodes           |
 | `install_initramfs`              | Set `CONFIG_INITRAMFS_SOURCE` to the tiny shell cpio and rebuild the kernel Image |
 | `make_initramfs_buildroot`       | Build Buildroot rootfs incrementally into `initramfs$(BITS)-buildroot.cpio.gz`    |
-| `make_initramfs_buildroot_clean` | Full clean Buildroot rebuild (`distclean` first)                                  |
+| `make_initramfs_buildroot_clean` | Full clean Buildroot rebuild; preserve downloaded sources                         |
 | `install_initramfs_buildroot`    | Set `CONFIG_INITRAMFS_SOURCE` to the Buildroot cpio and rebuild the kernel Image  |
 | `update_buildroot`               | Incremental Buildroot rebuild only                                                |
 | `update_buildroot_full`          | Buildroot rebuild + re-embed initramfs + rebuild OpenSBI                          |
@@ -215,10 +223,10 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 
 | Target              | Description                                                                                         |
 | ------------------- | --------------------------------------------------------------------------------------------------- |
-| `package`           | Bundle tiny shell artifacts into `DIST_DIR/linux-riscv-<preset>-v*.tar.gz`          |
+| `package`           | Bundle selected tiny shell or distro disk artifacts into `DIST_DIR`                 |
 | `package_buildroot` | Bundle rv$(BITS) Buildroot artifacts into `dist/linux-riscv-rv$(BITS)-<preset>-buildroot-v*.tar.gz` |
-| `package_all`       | Build both variants for every preset into `DIST_DIR`; preserve existing releases      |
-| `test_all`          | Audit each archive and test split/payload QEMU boot plus userspace checks           |
+| `package_all`       | Build tiny/Buildroot variants plus Alpine/Debian disk packages into `DIST_DIR`           |
+| `test_all`          | Audit every archive; test firmware paths or distro install/reboot persistence        |
 | `release_ready`    | Run `test_all`, verify the complete current matrix, and write checksums and release notes |
 | `github_release`    | Create a GitHub Release and upload tarballs from `dist/` (requires `gh`)                            |
 | `clean_packages`    | Remove `dist/`                                                                                      |
@@ -235,7 +243,7 @@ QEMU or Spike boots /init from payload/tiny_shell.c
 | `BITS`                 | `32`                      | Target bitness, normally set by `.config.mk`                    |
 | `CROSS_COMPILE`        | auto                      | Cross-compiler prefix, e.g. `riscv64-linux-gnu-`                |
 | `HOSTCC`               | `cc`                      | Host compiler for Linux `usr/gen_init_cpio.c`                   |
-| `QEMU_MEM`             | `256`                     | QEMU guest RAM in MiB, overridden by preset `[boot].memory`     |
+| `QEMU_MEM`             | `1024`                    | QEMU guest RAM in MiB, overridden by preset `[boot].memory`     |
 | `QEMU_TIMEOUT`         | unset                     | Auto-exit QEMU after this many seconds using `timeout(1)`       |
 | `PACKAGE_TEST_TIMEOUT` | `120`                      | Per-package QEMU boot timeout used by `test_all`, in seconds    |
 | `SYSTEM`               | unset                     | TOML preset path for `make configure`                           |
@@ -266,11 +274,14 @@ build inputs still match. Rerun `release_ready` after any rebuild. It creates
 `SHA256SUMS`, `release-notes.md` and `release-ready.json` only after the exact
 matrix passes. `PACKAGE_TEST_JOBS=2` controls parallel QEMU guests.
 
-`test_all` audits hashes, actual kernel configuration and userspace ELF ABI,
-then boots both `fw_dynamic.bin` + Image/initramfs and the standalone
+`test_all` audits hashes, actual kernel configuration, kernel source provenance
+and userspace ELF ABI. For firmware packages it boots both `fw_dynamic.bin` + Image/initramfs and the standalone
 `fw_payload.bin`. Buildroot packages additionally boot the initialized fast shell. Payload checks exercise tiny shell filesystem/sleep commands
 or 100 Buildroot child processes followed by a 90-second sleep. Logs and results
-are under `DIST_DIR/test-logs/` and `DIST_DIR/test-results.json`.
+are under `DIST_DIR/test-logs/` and `DIST_DIR/test-results.json`. Alpine and Debian
+instead boot an extracted disk copy, install/execute a package from upstream,
+test SSH, and verify file/package/key persistence after an actual reboot.
+The full matrix has 22 packages and 54 QEMU boot paths, all with 1 GiB RAM.
 
 Publishing is a separate explicit action:
 

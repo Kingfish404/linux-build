@@ -1,0 +1,22 @@
+#!/bin/sh
+case "$1" in
+    deconfig)
+        /bin/busybox ifconfig "$interface" 0.0.0.0
+        ;;
+    bound|renew)
+        /bin/busybox ifconfig "$interface" "$ip" netmask "${subnet:-255.255.255.0}" up
+        # Delete only the default route; flushing 0/0 can also remove the
+        # connected subnet route needed to reach the gateway.
+        /bin/busybox ip route del default dev "$interface" 2>/dev/null || true
+        for gateway in $router; do
+            /bin/busybox ip route add default via "$gateway" dev "$interface"
+            break
+        done
+        # Replace the container's resolver file with the guest DHCP response.
+        : > /etc/resolv.conf
+        for server in $dns; do
+            printf 'nameserver %s\n' "$server" >> /etc/resolv.conf
+        done
+        ;;
+esac
+exit 0

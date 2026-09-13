@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import tarfile
 import tomllib
+from release_common import matrix, DISTROS
+from distro_runtime import CHECKS, PERSISTENCE
 
 
 def sha(path):
@@ -17,6 +19,8 @@ def sha(path):
 
 
 def main():
+    if not __debug__:
+        raise RuntimeError('release checks require Python assertions; unset PYTHONOPTIMIZE')
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--dist', type=Path, required=True)
     ap.add_argument('--write', action='store_true')
@@ -24,17 +28,15 @@ def main():
     root = Path(__file__).resolve().parents[1]
     dist = a.dist.resolve()
     expected = {}
-    for p in sorted((root / 'configs').glob('*.toml')):
-        c = tomllib.loads(p.read_text())
+    for p, c, variant, name in matrix():
         bits = int(c['target']['arch'].removeprefix('riscv'))
-        for variant in ['tiny_shell'] + (['buildroot'] if 'buildroot' in c else []):
-            prefix = f'linux-riscv-{p.stem}' if variant == 'tiny_shell' else f'linux-riscv-rv{bits}-{p.stem}-buildroot'
-            expected[f'{prefix}-v{c["kernel"]["version"]}.tar.gz'] = (p, c, bits, variant)
+        expected[name + '.tar.gz'] = (p, c, bits, variant)
     assert set(expected) == {p.name for p in dist.glob('*.tar.gz')}, 'archive set differs from current preset matrix'
     tests_path = dist / 'test-results.json'
     tests = json.loads(tests_path.read_text())
     assert tests['pass'], 'package tests failed'
     assert tests.get('test_runner_sha256') == sha(root / 'scripts/test-packages.py'), 'test runner changed; rerun tests'
+    assert tests.get('test_dependencies') == {p: sha(root / 'scripts' / p) for p in ('distro_runtime.py', 'release_common.py')}, 'test dependencies changed; rerun tests'
     rows = tests['results']
     assert len(rows) == len(expected) and {r['archive'] for r in rows} == set(expected), 'test coverage is incomplete'
     results = {r['archive']: r for r in rows}
@@ -47,14 +49,19 @@ def main():
         with tarfile.open(archive, 'r:gz') as tf:
             m = json.load(tf.extractfile(name.removesuffix('.tar.gz') + '/manifest.json'))
         assert (m['preset'], m['bits'], m['variant'], m['kernel_version'], m['kernel_hz']) == (preset.stem, bits, variant, cfg['kernel']['version'], 100), f'{name}: manifest mismatch'
+        assert m['memory_mib'] == result['memory_mib'] == 1024, f'{name}: expected 1 GiB RAM'
         assert m['build_inputs'] and m['build_inputs'].get(str(preset.relative_to(root))) == sha(preset), f'{name}: preset changed'
         for path, h in m['build_inputs'].items():
             assert sha(root / path) == h, f'{name}: build input changed: {path}'
         boots = result['boots']
-        modes = {'split', 'payload', 'shell'} if variant == 'buildroot' else {'split', 'payload'}
+        modes = ({'disk', 'persistence'} if variant in DISTROS else
+                 {'split', 'payload', 'shell'} if variant == 'buildroot' else {'split', 'payload'})
         assert len(boots) == len(modes) and {b['mode'] for b in boots} == modes, f'{name}: missing boot path'
         for b in boots:
             assert b['pass'], f'{name}: boot failed'
+            if variant in DISTROS:
+                required = CHECKS if b['mode'] == 'disk' else PERSISTENCE
+                assert all(b.get('checks', {}).get(k) is True for k in required), f'{name}: incomplete distro acceptance'
             if b['mode'] == 'split' and variant == 'tiny_shell':
                 assert len(b.get('network_exec_commands', [])) == 3, f'{name}: missing network/exec checks'
             logdir = Path(tests['log_dir'])
@@ -73,7 +80,7 @@ def main():
         archives[name] = digest
     checksums = ''.join(f'{h}  {name}\n' for name, h in sorted(archives.items()))
     source = {str(p.relative_to(root)): sha(p) for p in sorted(root.glob('scripts/*.py'))}
-    source.update({str(p.relative_to(root)): sha(p) for p in [root / 'README.md', root / 'Makefile', root / 'scripts/buildroot.mk', *sorted((root / 'configs').glob('*.toml')), *sorted((root / 'docs').glob('*.md'))]})
+    source.update({str(p.relative_to(root)): sha(p) for p in [root / 'README.md', root / 'Makefile', root / 'scripts/buildroot.mk', root / 'scripts/distro.mk', *sorted((root / 'rootfs/distro').iterdir()), *sorted((root / 'configs').glob('*.toml')), *sorted((root / 'docs').glob('*.md'))]})
     record = {'schema': 1, 'ready': True, 'package_count': len(archives), 'boot_paths': sum(len(r['boots']) for r in rows),
               'board_tested': False, 'published': False, 'archives': archives,
               'test_results_sha256': sha(tests_path), 'source_files': source}
@@ -82,21 +89,21 @@ def main():
         table = '\n'.join(f'| {p.stem} | RV{bits} | {variant} | {c["kernel"]["version"]} |' for p,c,bits,variant in expected.values())
         notes = f'''# Raptor-compatible RISC-V Linux candidate
 
-{len(archives)} packages, each verified through separate Image/initramfs and embedded OpenSBI payload boot paths in QEMU.
+{len(archives)} packages validated in QEMU: tiny/Buildroot firmware packages plus RV64 Alpine and Debian persistent disk packages.
 
-All presets use HZ=100. Tiny shell kernels use soft-float userspace; Buildroot kernels enable F/D for ilp32d/lp64d userspace. Tiny fast presets use 64 MiB in QEMU; all Buildroot variants and other presets use 256 MiB.
+All presets use HZ=100 and 1 GiB RAM. Tiny shell kernels use soft-float userspace; Buildroot kernels enable F/D for ilp32d/lp64d userspace. Alpine and Debian use RV64GC/lp64d userspace with official upstream repositories.
 
 The build separates tiny and Buildroot kernel/firmware output, validates the embedded Image and DTB relocation at +63 MiB, and caches root filesystems by configuration. RV32 tiny shell uses time64 sleep/poll and waitid for child reaping.
 
 Buildroot also provides an initialized fast shell at `/sbin/raptor-shell`, BusyBox nc, and tinysh-compatible fetch/run helpers. `/proc/cpuinfo`, sysfs, devtmpfs, devpts and command availability are tested in both full init and fast shell modes. Direct `rdinit=/bin/sh` bypasses initialization and is not a complete runtime environment.
 
-Validation includes archive hashes, kernel configuration, userspace ELF ABI, two boot paths per tiny package and three per Buildroot package, tiny filesystem/sleep, ping and downloaded ELF execution checks, and 100 child processes plus a 90-second sleep for each Buildroot payload. See test-results.json and test-logs for the exact results. SHA256SUMS identifies the tested archives.
+Validation includes archive hashes, kernel configuration, userspace ELF ABI, two boot paths per tiny package and three per Buildroot package, tiny filesystem/sleep, ping and downloaded ELF execution checks, and 100 child processes plus a 90-second sleep for each Buildroot payload. Both distro packages are built cleanly inside full-system RV64 QEMU without host binfmt registrations. Their extracted test copies pass DNS/HTTPS, upstream jq installation/execution, key-based SSH, actual reboot and file/package/SSH-key persistence. See test-results.json and test-logs for the exact results. SHA256SUMS identifies the tested archives.
 
 | Preset | Architecture | Variant | Linux |
 | --- | --- | --- | --- |
 {table}
 
-These are QEMU-tested firmware/kernel/rootfs packages. FPGA acceptance has not been performed on this candidate. Board use requires the matching Raptor bitstream, stage0 and LiteX DTB with accurate XLEN, ISA (including F/D for Buildroot), RAM, peripherals and timer frequency. No board stage0 or SD-card filesystem image is included.
+These are QEMU-tested firmware/kernel/rootfs packages. FPGA acceptance has not been performed on this candidate. Board use requires the matching Raptor bitstream, stage0 and LiteX DTB with accurate XLEN, ISA (including F/D for Buildroot and distros), RAM, peripherals and timer frequency. Distro packages use a standalone kernel plus raw ext4 virtio disk, not a board SD-card layout or embedded payload. No board stage0 is included. Their unauthenticated serial root shell is for bring-up; SSH passwords are disabled. Service packages requiring OpenRC/systemd need explicit integration with BusyBox init.
 '''
         (dist / 'release-notes.md').write_text(notes)
         record['release_notes_sha256'] = sha(dist / 'release-notes.md')

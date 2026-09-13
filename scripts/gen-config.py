@@ -9,6 +9,7 @@ Outputs (written to --out-dir, default "."):
     .config.kernel            — Shared kernel config fragment (arch-derived)
     .config.kernel.minimal    — Minimal variant kernel config (from [minimal.kernel.config])
     .config.kernel.buildroot  — Buildroot variant kernel config (from [buildroot.kernel.config])
+    .config.kernel.distro     — Distribution disk kernel config (from [distro.kernel.config])
     .config.buildroot         — Buildroot package config fragment
 
 The generated .config.mk is designed to be `-include`d by the Makefile BEFORE
@@ -29,14 +30,14 @@ from typing import Any
 ARCH_MAP = {
     "riscv32": {
         "bits": 32,
-        "fpu_isa":    "rv32imafd_zicntr_zicsr_zifencei",
+        "fpu_isa":    "rv32imafdc_zicntr_zicsr_zifencei",
         "nofpu_isa":  "rv32imac_zicntr_zicsr_zifencei",
         "fpu_abi":    "ilp32d",
         "nofpu_abi":  "ilp32",
     },
     "riscv64": {
         "bits": 64,
-        "fpu_isa":    "rv64imafd_zicntr_zicsr_zifencei",
+        "fpu_isa":    "rv64imafdc_zicntr_zicsr_zifencei",
         "nofpu_isa":  "rv64imac_zicntr_zicsr_zifencei",
         "fpu_abi":    "lp64d",
         "nofpu_abi":  "lp64",
@@ -125,7 +126,7 @@ def kconfig_line(key: str, val: Any) -> str:
 # Generators
 # ---------------------------------------------------------------------------
 
-def gen_make_config(cfg: dict, preset_name: str) -> str:
+def gen_make_config(cfg: dict, preset_name: str, preset_path: Path | None = None) -> str:
     """Generate .config.mk content from parsed TOML."""
     arch_name = deep_get(cfg, "target", "arch", default="riscv64")
     arch      = ARCH_MAP.get(arch_name)
@@ -145,11 +146,11 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
     isa_br  = arch["fpu_isa"] if buildroot_fpu else arch["nofpu_isa"]
     abi_br  = arch["fpu_abi"] if buildroot_fpu else arch["nofpu_abi"]
 
-    kver      = deep_get(cfg, "kernel", "version", default="6.18.50")
+    kver      = deep_get(cfg, "kernel", "version", default="6.18.51")
     rootfs_ty = deep_get(cfg, "rootfs", "type", default="initramfs")
     compress  = deep_get(cfg, "rootfs", "compression", default="gzip")
     loader    = deep_get(cfg, "boot", "loader", default="qemu")
-    mem       = deep_get(cfg, "boot", "memory", default=512)
+    mem       = deep_get(cfg, "boot", "memory", default=1024)
     timeout   = deep_get(cfg, "boot", "timeout", default=0)
     ssh_port  = deep_get(cfg, "buildroot", "ssh_port", default=2222)
 
@@ -170,7 +171,7 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
         f"RISCV_ABI_BUILDROOT := {abi_br}",
         "",
         f"QEMU_MEM        := {mem}",
-        f"QEMU_MEM_BUILDROOT := {deep_get(cfg, 'buildroot', 'memory', default=max(mem, 256))}",
+        f"QEMU_MEM_BUILDROOT := {deep_get(cfg, 'buildroot', 'memory', default=mem)}",
         f"QEMU_TIMEOUT    := {timeout if timeout else ''}",
         f"SSH_PORT        := {ssh_port}",
         "",
@@ -179,6 +180,15 @@ def gen_make_config(cfg: dict, preset_name: str) -> str:
         f"SYSTEM_COMPRESS := {compress}",
         f"SYSTEM_LOADER   := {loader}",
     ]
+    if rootfs_ty in ("alpine", "debian"):
+        if bits != 64 or loader != "qemu":
+            raise ValueError("distribution rootfs requires riscv64 and boot.loader=qemu")
+        lines.extend([
+            f"DISTRO_PRESET := {preset_path or Path(__file__).resolve().parents[1] / 'configs' / (preset_name + '.toml')}",
+            "KERNEL_VARIANT := distro",
+            f"RISCV_ISA := {arch['fpu_isa']}",
+            f"RISCV_ABI := {arch['fpu_abi']}",
+        ])
     return "\n".join(lines) + "\n"
 
 
@@ -195,6 +205,9 @@ def gen_kernel_config(cfg: dict) -> str:
     lines = [
         "# Auto-generated shared kernel config — DO NOT EDIT",
         "# Source: system.toml  ->  applied via scripts/config",
+        "",
+        "# All supported RV32/RV64 targets implement compressed instructions.",
+        "CONFIG_RISCV_ISA_C=y",
         "",
     ]
 
@@ -259,6 +272,9 @@ def gen_buildroot_config(cfg: dict) -> str:
     lines = [
         "# Auto-generated Buildroot config fragment — DO NOT EDIT",
         "# Source: system.toml  ->  applied on top of qemu_riscv*_virt_defconfig",
+        "",
+        "# All supported RV32/RV64 targets implement compressed instructions.",
+        "BR2_RISCV_ISA_RVC=y",
         "",
         "# linux-build supplies the kernel, firmware and host emulator.",
         "# BR2_LINUX_KERNEL is not set",
@@ -332,6 +348,12 @@ def print_summary(cfg: dict, out_dir: Path) -> None:
     isa_br  = ARCH_MAP.get(arch, {}).get("fpu_isa" if buildroot_fpu else "nofpu_isa", "?")
 
     print(f"  Target:     {arch} (rv{bits})")
+    distro = deep_get(cfg, "rootfs", "type")
+    if distro in ("alpine", "debian"):
+        print(f"  Userspace:  {distro}, RV64GC/lp64d, persistent ext4")
+        print(f"  Kernel:     {kver}")
+        print(f"  Generated:  {out_dir / '.config.mk'}, {out_dir / '.config.kernel'}, {out_dir / '.config.kernel.distro'}")
+        return
     print(f"  Minimal:    {isa_min} (FPU={'on' if minimal_fpu else 'off'})")
     print(f"  Buildroot:  {isa_br} (FPU={'on' if buildroot_fpu else 'off'})")
     print(f"  Kernel:     {kver}")
@@ -368,7 +390,7 @@ def main() -> None:
 
     # Write .config.mk
     preset_name = args.system_toml.stem  # e.g. "qemu-rv32" from "configs/qemu-rv32.toml"
-    (out / ".config.mk").write_text(gen_make_config(cfg, preset_name))
+    (out / ".config.mk").write_text(gen_make_config(cfg, preset_name, args.system_toml.resolve()))
 
     # Write .config.kernel (shared arch-derived config)
     (out / ".config.kernel").write_text(gen_kernel_config(cfg))
@@ -376,6 +398,7 @@ def main() -> None:
     # Write per-variant kernel config fragments
     (out / ".config.kernel.minimal").write_text(gen_variant_kernel_config(cfg, "minimal"))
     (out / ".config.kernel.buildroot").write_text(gen_variant_kernel_config(cfg, "buildroot"))
+    (out / ".config.kernel.distro").write_text(gen_variant_kernel_config(cfg, "distro"))
 
     # Write .config.buildroot when a [buildroot] section exists
     # (even with empty packages — base buildroot with busybox is still useful)

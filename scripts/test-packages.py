@@ -20,6 +20,8 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import distro_runtime
+from release_common import DISTROS
 
 FAILURES = ('Kernel panic', 'Oops:', 'Unable to handle kernel', 'BUG:',
             'No working init found', 'Attempted to kill init', 'rcu: INFO:')
@@ -94,6 +96,14 @@ def extract_and_audit(archive, destination):
     manifest = json.loads((destination / 'manifest.json').read_text())
     if {name: h for name, h in hashes.items() if name != 'manifest.json'} != manifest['files']:
         raise ValueError('archive file hashes differ from manifest')
+    source = json.loads((destination / 'kernel-source.json').read_text())
+    version = manifest['kernel_version']
+    expected_url = f'https://cdn.kernel.org/pub/linux/kernel/v{version.split(".")[0]}.x/linux-{version}.tar.xz'
+    if (source['version'] != version or source['archive_url'] != expected_url or
+            not re.fullmatch(r'[0-9a-f]{64}', source['sha256'])):
+        raise ValueError('kernel source provenance differs from package')
+    if manifest['variant'] in DISTROS:
+        return distro_runtime.audit(destination, manifest)
     if manifest['variant'] == 'buildroot':
         rootfs = json.loads((destination / 'rootfs-manifest.json').read_text())
         if rootfs['identity'].get('schema') != 2 or not rootfs.get('busybox_required_features') or rootfs['rootfs_sha256'] != manifest['files']['initramfs.cpio.gz']:
@@ -345,8 +355,13 @@ def test_one(archive, timeout, log_dir):
             result.update(preset=manifest['preset'], variant=manifest['variant'], bits=manifest['bits'],
                           kernel_version=manifest['kernel_version'], user_elf=manifest['tested_user_elf'],
                           kernel_hz=manifest['kernel_hz'], memory_mib=manifest['memory_mib'])
-            for mode in (('split', 'payload', 'shell') if manifest['variant'] == 'buildroot' else ('split', 'payload')):
-                result['boots'].append(boot(files, manifest, mode, timeout, log_dir / (name + '-' + mode + '.log')))
+            if manifest['variant'] in DISTROS:
+                result['boots'] = distro_runtime.test(files, manifest, timeout, log_dir, name, Guest)
+            else:
+                for mode in (('split', 'payload', 'shell') if manifest['variant'] == 'buildroot' else ('split', 'payload')):
+                    result['boots'].append(boot(files, manifest, mode, timeout, log_dir / (name + '-' + mode + '.log')))
+            if digest(archive) != result['archive_sha256']:
+                raise ValueError('archive changed during testing')
             result['pass'] = True
     except Exception as error:
         result['error'] = str(error)
@@ -370,8 +385,9 @@ def main():
     run_dir = a.dist / 'test-logs' / time.strftime('%Y%m%d-%H%M%S')
     run_dir.mkdir(parents=True, exist_ok=False)
     summary = {'started': time.time(), 'test_runner_sha256': digest(Path(__file__)), 'scope': 'QEMU and archive validation, not FPGA acceptance',
+               'test_dependencies': {p: digest(Path(__file__).parent / p) for p in ('distro_runtime.py', 'release_common.py')},
                'log_dir': str(run_dir), 'results': [], 'pass': False}
-    print(f'Testing {len(archives)} archives on split/payload paths plus the Buildroot initialized shell', flush=True)
+    print(f'Testing {len(archives)} archives: firmware paths, Buildroot shell, distro installation/reboot persistence', flush=True)
     with ThreadPoolExecutor(max_workers=a.jobs) as executor:
         futures = [executor.submit(test_one, p, a.timeout, run_dir) for p in archives]
         for future in as_completed(futures):

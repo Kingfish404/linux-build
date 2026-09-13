@@ -31,7 +31,8 @@ def main():
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
     source = root / f'buildroot{a.bits}'
     config = a.config.resolve().read_bytes()
-    baseline = {str(p.relative_to(root)): digest(p) for p in sorted((root / 'rootfs').rglob('*')) if p.is_file()}
+    baseline_files = [root / 'rootfs/busybox.fragment', *sorted((root / 'rootfs/overlay').rglob('*'))]
+    baseline = {str(p.relative_to(root)): digest(p) for p in baseline_files if p.is_file()}
     identity = {'schema': 2, 'bits': a.bits, 'fragment_sha256': hashlib.sha256(config).hexdigest(),
                 'source_commit': subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
                 'source_diff_sha256': hashlib.sha256(subprocess.check_output(['git', '-C', str(source), 'diff', 'HEAD'])).hexdigest(),
@@ -88,9 +89,15 @@ def main():
                                    for k, v in after.items()))
             break
     target = 'make_initramfs_buildroot' if same_config else 'make_initramfs_buildroot_clean'
-    subprocess.run(['make', f'BITS={a.bits}', f'NPROC={a.jobs}',
-                    'BUILDROOT_CFG=' + str(a.config.resolve()), target], cwd=root, check=True)
+    common = ['make', f'BITS={a.bits}', f'NPROC={a.jobs}',
+              'BUILDROOT_CFG=' + str(a.config.resolve())]
+    if not same_config:
+        subprocess.run([*common, 'clean_buildroot_outputs'], cwd=root, check=True)
+    # This stamp records the requested output configuration, not acceptance.
+    # Write only after cleaning succeeds, so interrupted builds can safely
+    # resume objects. Only the verified cache manifest certifies a rootfs.
     source_stamp.write_text(config_md5 + '\n')
+    subprocess.run([*common, 'make_initramfs_buildroot'], cwd=root, check=True)
     busybox_configs = list((source / 'output/build').glob('busybox-*/.config'))
     if len(busybox_configs) != 1:
         raise RuntimeError('expected one configured BusyBox build')

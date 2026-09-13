@@ -1,5 +1,6 @@
 .vscode
 .idea
+__pycache__
 
 # Generated declarative build config (make configure)
 .config.mk
@@ -21,6 +22,9 @@ opensbi-build*
 initramfs*
 spike-build*
 dist
+qemu-rv64-alpine/
+qemu-rv64-debian/
+qemu-rv64-*-kernel/
 third_party
 
 *.tmp

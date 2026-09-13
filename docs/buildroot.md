@@ -17,7 +17,7 @@ make test_qemu_buildroot_shell
 Buildroot kernel, embeds the rootfs, builds matching OpenSBI and packages the
 exact files. The upstream Buildroot kernel/host-QEMU builds are disabled;
 old modules from that unrelated kernel are removed during rootfs generation.
-All supplied Buildroot presets use 256 MiB in QEMU and hard-float
+All supplied Buildroot presets use 1 GiB in QEMU and hard-float
 userspace, requiring F/D support in both hardware and the board DTB.
 
 Change `[buildroot.packages]` in the preset, rerun `make configure`, then run
@@ -27,7 +27,10 @@ no cache entry, a clean rootfs build avoids retaining removed packages.
 
 For low-level iteration, `make_initramfs_buildroot` and `update_buildroot`
 perform incremental builds; they can retain files from removed packages.
-`make_initramfs_buildroot_clean` performs a full clean build.
+`make_initramfs_buildroot_clean` performs a full clean build while preserving
+downloaded sources (upstream `distclean` also removes `dl/`, so it is not used).
+Failed builds can resume compiled objects when the requested configuration is
+unchanged; only completed, verified rootfs manifests are accepted as cache hits.
 `update_buildroot_full` resolves the rootfs cache and rebuilds the independent
 Buildroot kernel and its embedded firmware.
 

@@ -1,0 +1,4 @@
+#!/bin/sh
+# BusyBox init supplies PID 1 child reaping and respawns the bring-up console.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+exec /bin/busybox init

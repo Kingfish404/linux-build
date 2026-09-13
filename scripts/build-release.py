@@ -7,6 +7,7 @@ import subprocess
 import time
 import tomllib
 from pathlib import Path
+from release_common import variants, package_name, DISTROS
 
 
 def sha(path):
@@ -39,7 +40,7 @@ def main():
         return (tuple(int(x) for x in cfg['kernel']['version'].split('.')), cfg['target']['arch'],
                 {'': 0, '-s': 1, '-m': 2, '-fast': 3, '-latest': 4}.get(suffix, 5))
     configs.sort(key=order)
-    status = {'started': time.time(), 'expected_packages': sum(1 + ('buildroot' in c) for _, c in configs),
+    status = {'started': time.time(), 'expected_packages': sum(len(variants(c)) for _, c in configs),
               'build_root': str(build_root), 'packages': [], 'pass': False}
     def save():
         (dist / 'build-result.json').write_text(json.dumps(status, indent=2) + '\n')
@@ -49,10 +50,8 @@ def main():
         with (logs / (config.stem + '-configure.log')).open('w') as log:
             subprocess.run(['make', 'configure', 'SYSTEM=' + str(config)], cwd=root,
                            stdout=log, stderr=subprocess.STDOUT, check=True)
-        variants = ['tiny_shell'] + (['buildroot'] if 'buildroot' in cfg else [])
-        for variant in variants:
-            name = (f'linux-riscv-{config.stem}-v{cfg["kernel"]["version"]}' if variant == 'tiny_shell'
-                    else f'linux-riscv-rv{bits}-{config.stem}-buildroot-v{cfg["kernel"]["version"]}')
+        for variant in variants(cfg):
+            name = package_name(config, cfg, variant)
             archive = dist / (name + '.tar.gz')
             manifest_path = dist / name / 'manifest.json'
             item = {'preset': config.stem, 'variant': variant, 'archive': archive.name, 'started': time.time()}
@@ -64,7 +63,8 @@ def main():
                     print(f'REUSE {name}', flush=True)
                     save()
                     continue
-            target = 'package' if variant == 'tiny_shell' else 'package_buildroot'
+            target = ('package_distro' if variant in DISTROS else
+                      'package' if variant == 'tiny_shell' else 'package_buildroot')
             cmd = ['make', f'NPROC={args.jobs}', 'BUILD_ROOT=' + str(build_root), 'DIST_DIR=' + str(dist), target]
             item.update(command=cmd, log=str(logs / (name + '.log')))
             print(f'BUILD [{len(status["packages"])}/{status["expected_packages"]}] {name}', flush=True)

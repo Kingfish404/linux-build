@@ -1,0 +1,5 @@
+::sysinit:/bin/sh -c '/etc/init.d/raptor-boot || echo RAPT_BOOT_FAILED'
+ttyS0::askfirst:-/bin/sh
+::ctrlaltdel:/bin/busybox reboot
+::shutdown:/bin/busybox sync
+::shutdown:/bin/busybox umount -a -r
